@@ -130,13 +130,14 @@ def render_frame(Hm, objs, ball):
 
 # ------------------------------------------------------------------------ mocks
 class FakeWorld:
-    def __init__(self, ppl):
-        self.ppl, self.f = ppl, 0
-        self.gt_rows = []
+    """Sahte modeller hangi frame'de olduklarını pipeline'ın verdiği frame_idx'ten alır
+    (çağrı sırasına / sayaca bağlı değil)."""
 
-    def detector(self, frame):
-        # kırpıntı toplama aşaması farklı frame'lerde çağırır: frame'i piksel imzasından değil, sayaçtan alıyoruz
-        Hm, objs, ball = scene(self.ppl, self.f)
+    def __init__(self, ppl):
+        self.ppl = ppl
+
+    def detector(self, frame, frame_idx):
+        Hm, objs, ball = scene(self.ppl, frame_idx)
         xyxy, cls, conf = [], [], []
         for o in objs:
             b = o["box"] + RNG.normal(0, 1.0, 4)
@@ -145,17 +146,17 @@ class FakeWorld:
             xyxy.append(b); cls.append(o["cls"]); conf.append(RNG.uniform(0.6, 0.95))
         if RNG.random() > 0.1:                                  # %10 top kaçırma
             b = ball["box"].copy()
-            if self.f in (40, 90):                              # 2 kez sahte top (outlier testi)
+            if frame_idx in (40, 90):                           # 2 kez sahte top (outlier testi)
                 b += np.array([500, -200, 500, -200])
             xyxy.append(b); cls.append(BALL); conf.append(0.5)
         if not xyxy:
             return sv.Detections.empty()
         return sv.Detections(xyxy=np.array(xyxy, float), class_id=np.array(cls), confidence=np.array(conf))
 
-    def keypointer(self, frame):
-        if self.f % 20 == 7:                                    # ara sıra keypoint yok -> carry testi
+    def keypointer(self, frame, frame_idx):
+        if frame_idx % 20 == 7:                                 # ara sıra keypoint yok -> carry testi
             return None, None
-        Hm = camera_H(self.f / FPS)
+        Hm = camera_H(frame_idx / FPS)
         uv = cv2.perspectiveTransform(PITCH.vertices.reshape(-1, 1, 2), Hm).reshape(-1, 2)
         uv += RNG.normal(0, 1.5, uv.shape)
         vis = (uv[:, 0] > 0) & (uv[:, 0] < W) & (uv[:, 1] > 95) & (uv[:, 1] < H)
@@ -187,32 +188,18 @@ def run(out_root: Path) -> dict:
     gt = make_video(video, ppl, n)
     world = FakeWorld(ppl)
 
-    # Sahte modeller hangi frame'de olduklarını bir sayaçtan bilir.
     # (a) takım fit aşaması: videoyu FPS adımıyla okuyup kırpıntı topla
     from fai.pipeline import collect_player_crops
     from fai.teams import TeamClassifier
 
-    def det_fit(frame):
-        d = world.detector(frame)
-        world.f += FPS
-        return d
-
     frames = sv.get_video_frames_generator(str(video), stride=FPS)
-    crops = collect_player_crops(frames, det_fit)
+    crops = collect_player_crops(((k * FPS, f) for k, f in enumerate(frames)), world.detector)
     match_dir = out_root / "match"
     match_dir.mkdir(exist_ok=True)
     TeamClassifier("color").fit(crops).save(match_dir / "team_classifier.pkl")   # build bunu yükler
 
-    # (b) tracking aşaması: process() önce detector sonra keypointer çağırır;
-    #     sayaç keypointer'dan sonra ilerler
-    world.f = 0
-
-    def kp_adv(frame):
-        r = world.keypointer(frame)
-        world.f += 1
-        return r
-
-    build_match_dataset(video, match_dir, world.detector, kp_adv, team_method="color", fmt="parquet")
+    # (b) tracking aşaması
+    build_match_dataset(video, match_dir, world.detector, world.keypointer, team_method="color", fmt="parquet")
 
     df, frames_df, meta = load_match(match_dir)
 
@@ -296,7 +283,6 @@ def test_synthetic(tmp_path=None):
     assert r["speed_err_median_mps"] < 0.6
     assert r["ball_outliers_caught"]
     assert r["ball_interp_rows"] > 0
-    return r
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 """Frame başına işlem: detection -> tracking -> homography -> takım -> satırlar.
 
 Pipeline model çağrılarını dışarıdan alır (callable). Böylece aynı kod gerçek
-YOLO modelleriyle de, testlerdeki sahte modellerle de çalışır.
+YOLO modelleriyle de, testlerdeki sahte modellerle de çalışır. Modeller
+`model(frame, frame_idx)` şeklinde çağrılır; gerçek modeller frame_idx'i yok sayar,
+sahte modeller hangi frame'de olduklarını çağrı sırasından değil buradan öğrenir.
 
 Çıktı satır şeması (tracking datası, obje başına bir satır):
     frame, t, track_id, cls, conf, team_raw,
@@ -23,8 +25,8 @@ from .models import BALL, CLASSES, GOALKEEPER, PLAYER, REFEREE, make_tracker
 from .pitch import PitchConfig
 from .teams import TeamClassifier, assign_goalkeepers
 
-Detector = Callable[[np.ndarray], sv.Detections]
-Keypointer = Callable[[np.ndarray], Tuple[Optional[np.ndarray], Optional[np.ndarray]]]
+Detector = Callable[[np.ndarray, int], sv.Detections]
+Keypointer = Callable[[np.ndarray, int], Tuple[Optional[np.ndarray], Optional[np.ndarray]]]
 
 
 @dataclass
@@ -49,12 +51,13 @@ def crops_of(frame: np.ndarray, xyxy: np.ndarray) -> List[np.ndarray]:
     return out
 
 
-def collect_player_crops(frames: Iterable[np.ndarray], detector: Detector,
+def collect_player_crops(frames: Iterable[Tuple[int, np.ndarray]], detector: Detector,
                          max_crops: int = 2000, min_h: int = 20) -> List[np.ndarray]:
-    """Takım sınıflandırıcıyı fit etmek için videodan oyuncu kırpıntıları topla."""
+    """Takım sınıflandırıcıyı fit etmek için videodan oyuncu kırpıntıları topla.
+    frames: (frame_idx, frame) çiftleri."""
     crops: List[np.ndarray] = []
-    for frame in frames:
-        d = detector(frame)
+    for frame_idx, frame in frames:
+        d = detector(frame, frame_idx)
         d = d[d.class_id == PLAYER]
         hgt = d.xyxy[:, 3] - d.xyxy[:, 1] if len(d) else np.zeros(0)
         crops += crops_of(frame, d.xyxy[hgt >= min_h])
@@ -76,8 +79,8 @@ class TrackingPipeline:
                                         pitch.polylines(), cfg.min_line_score)
 
     # ------------------------------------------------------------------ helpers
-    def _ball(self, frame: np.ndarray, dets: sv.Detections) -> sv.Detections:
-        b = self.ball_detector(frame) if self.ball_detector is not None else dets[dets.class_id == BALL]
+    def _ball(self, frame: np.ndarray, frame_idx: int, dets: sv.Detections) -> sv.Detections:
+        b = self.ball_detector(frame, frame_idx) if self.ball_detector is not None else dets[dets.class_id == BALL]
         if self.ball_detector is not None:
             b = b[b.class_id == BALL]
         b = b[b.confidence >= self.cfg.ball_conf] if len(b) and b.confidence is not None else b
@@ -88,8 +91,8 @@ class TrackingPipeline:
     # --------------------------------------------------------------------- main
     def process(self, frame_idx: int, frame: np.ndarray) -> Tuple[List[Dict], Dict]:
         t = frame_idx / self.fps
-        dets = self.detector(frame)
-        ball = self._ball(frame, dets)
+        dets = self.detector(frame, frame_idx)
+        ball = self._ball(frame, frame_idx, dets)
 
         people = dets[dets.class_id != BALL]
         if len(people):
@@ -99,7 +102,7 @@ class TrackingPipeline:
             people.tracker_id = np.full(len(people), -1, dtype=int)
 
         # homography
-        kp_xy, kp_conf = self.keypointer(frame) if self.keypointer is not None else (None, None)
+        kp_xy, kp_conf = self.keypointer(frame, frame_idx) if self.keypointer is not None else (None, None)
         H, h_src = self.htrack.update(kp_xy, kp_conf, frame)
 
         def to_pitch(pts: np.ndarray) -> np.ndarray:

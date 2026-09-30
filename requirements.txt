@@ -1,19 +1,22 @@
-# PyTorch'u önce GPU'na uygun kur (bkz. README "Kurulum"), sonra: pip install -r requirements.txt
-ultralytics>=8.3.0
-supervision>=0.25.0
-trackers>=2.0            # ByteTrack; supervision.ByteTrack 0.31'de kaldırılıyor
-numpy
-opencv-python
-pandas
-pyarrow                  # parquet (yoksa CSV'ye düşer)
-scipy
-scikit-learn
-tqdm
-pyyaml
+# PyTorch'u ÖNCE GPU'na uygun CUDA build'iyle kur (bkz. README "Kurulum"), sonra: pip install -r requirements.txt
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128   (test: torch 2.11.0+cu128)
+# Üst sınırlar test edilmiş aralıktır; parantez içindeki sürümlerle test edildi (Python 3.11, Windows).
+# Tek OpenCV: sadece opencv-python. opencv-python-headless / opencv-contrib-python ile AYNI ortama kurma.
+ultralytics>=8.3.0,<8.5        # (8.4.168)
+supervision>=0.27,<0.31        # (0.30.6) InferenceSlicer int slice_wh >=0.27; sv.ByteTrack 0.31'de kaldırılıyor
+trackers>=2.6,<3               # (2.6.1) ByteTrackTracker
+numpy>=1.26,<3                 # (2.4.6)
+opencv-python>=4.8,<6          # (5.0.0.93)
+pandas>=2.2,<4                 # (3.0.6)
+pyarrow>=14,<26                # (25.0.1) parquet (yoksa CSV'ye düşer)
+scipy>=1.11,<2                 # (1.17.1)
+scikit-learn>=1.4,<2           # (1.9.1)
+tqdm>=4.66,<5                  # (4.70.1)
+pyyaml>=6,<7                   # (6.0.3)
+requests>=2.28,<3              # (2.34.2) 01_download_datasets.py -> Roboflow REST API
 
 # takım ayrımı - siglip backend (color backend bunlara ihtiyaç duymaz)
-transformers>=4.40
-umap-learn
+transformers>=4.40,<6          # (5.17.0)
+umap-learn>=0.5.5,<0.6         # (0.5.12)
 
-# sadece 01_download_datasets.py
-roboflow
+# `roboflow` paketi bilinçli olarak yok: opencv-python-headless ve numpy<2.4 sabitliyor.

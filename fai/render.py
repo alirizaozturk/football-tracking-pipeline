@@ -15,7 +15,7 @@ from .viz import Radar, annotate_broadcast, overlay_inset
 
 
 def radar_objects(rows) -> dict:
-    ok = rows["on_pitch"] & rows[["xs", "ys"]].notna().all(1)
+    ok = rows["on_pitch"] & rows[["xs", "ys"]].notna().all(axis=1)
     r = rows[ok]
     ppl = r[r["role"].isin(["player", "goalkeeper"])]
     return {

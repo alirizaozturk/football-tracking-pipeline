@@ -27,14 +27,22 @@ video ──► detection (YOLO) ──► ByteTrack ──► takım (SigLIP→
 
 ## Kurulum
 
+Proje kökünde ayrı bir venv (Python 3.11). Sistem Python'una kurma.
+
 ```bash
-conda create -n football python=3.11 -y && conda activate football
-# 1) PyTorch'u GPU'na göre kur. RTX 50 serisi (Blackwell) için CUDA >= 12.8 build'i gerekir.
-pip install torch torchvision          # güncel PyPI build'i; olmazsa pytorch.org'daki komutu kullan
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-# 2) geri kalanlar
-pip install -r requirements.txt
+py -3.11 -m venv .venv                     # Linux/macOS: python3.11 -m venv .venv
+.venv\Scripts\activate                     # Linux/macOS: source .venv/bin/activate
+python -m pip install --upgrade pip
+# 1) PyTorch'u ÖNCE, CUDA build'iyle kur. Windows'ta PyPI'deki torch CPU'dur; requirements'tan önce
+#    kurulmazsa ultralytics CPU torch'u çeker. cu128 RTX 40 ve RTX 50 (Blackwell) serisinde çalışır.
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+# 2) geri kalanlar (+ testler için pytest)
+pip install -r requirements-dev.txt
+pip check                                  # "No broken requirements found." görmelisin
 ```
+
+**Tek OpenCV:** sadece `opencv-python`. `opencv-python-headless` / `opencv-contrib-python*` aynı `cv2/` klasörüne yazar; ikisi birden kuruluysa biri kaldırıldığında `cv2` bozulur. Bu yüzden `roboflow` paketi de kullanılmıyor (headless sabitliyor); `01_download_datasets.py` Roboflow REST API'sini doğrudan çağırır. `requirements.txt`'teki üst sınırlar test edilmiş sürüm aralığıdır.
 
 ## Fazlar
 
@@ -42,14 +50,18 @@ Her faz bir öncekinin çıktısını kullanır. **"Bitti"** satırı o fazın t
 
 ### Faz 0 — Ortam doğrulama
 ```bash
-python -m tests.test_synthetic
+pip check
+python -m tests.test_synthetic                 # uçtan uca sentetik test (çıktılar tests/_out/)
+python -m pytest tests -v                      # sentetik test + negatif testler
 ```
-Modelsiz sentetik bir yayın videosu üretir, detector/keypoint yerine GT'den gürültülü çıktı veren sahteleri koyar; tracker, homography, takım, postprocess, analiz ve render gerçek kodla çalışır.
-**Bitti:** tüm assert'ler geçiyor, `tests/_out/render_mid.png` radar + Voronoi ile oluşmuş.
+`test_synthetic`: modelsiz sentetik bir yayın videosu üretir, detector/keypoint yerine GT'den gürültülü çıktı veren sahteleri koyar; tracker, homography, takım, postprocess, analiz ve render gerçek kodla çalışır. Pipeline modelleri `model(frame, frame_idx)` diye çağırır; sahte modeller frame'i çağrı sırasından değil bu parametreden bilir (gerçek modeller `frame_idx`'i yok sayar).
+
+`test_negative`: analizde bulunan hataları mantık seviyesinde belgeler. `test_bulguNN_*` testleri düzeltmeler yapılana kadar **FAIL verir** (bulgu numaraları analiz raporundaki tabloya karşılık gelir): #1 x-kaymalı keypoint seti `fresh` kabul ediliyor, #2 kesme sonrası eski H taşınıyor, #6 ilk top tespiti sahteyse sonraki gerçek tespitler atılıyor, #7 uzun top boşluğunun ilk 1 s'si dolduruluyor, #8 hakem sınıf titremesi rol/takımı bozuyor, #9 conf 0.3–0.5 tespitler track almıyor ve 50 fps'te kayıp track 3.3 s tutuluyor. `test_kontrol_*` testleri bugün doğru olan davranışı sabitler, her zaman geçmeli.
+**Bitti:** `pip check` temiz, `test_synthetic` ve `test_kontrol_*` geçiyor, `tests/_out/render_mid.png` radar + Voronoi ile oluşmuş. (`test_bulgu*` Faz A'da geçecek.)
 
 ### Faz 1 — Roboflow datası + modeller
 ```bash
-export ROBOFLOW_API_KEY=...                                   # roboflow.com → Settings → API Keys
+export ROBOFLOW_API_KEY=...                                   # roboflow.com → Settings → API Keys (PowerShell: $env:ROBOFLOW_API_KEY="...")
 python scripts/01_download_datasets.py --which players field ball
 python scripts/02_train.py det  --data data/roboflow/players-v*/data.yaml
 python scripts/02_train.py pose --data data/roboflow/field-v*/data.yaml
@@ -157,5 +169,5 @@ Entegrasyon: `02_train` (det + pose), `03_check_keypoints`, `04_extract_frames`,
 ```
 fai/            pitch, homography, models, teams, pipeline, postprocess, build, render, analysis, viz, dataio
 scripts/        01_download → 02_train → 03_check_keypoints → 04_extract → 05_autolabel → 06_build → 07_render → 08_analyze
-tests/          test_synthetic.py (modelsiz uçtan uca), make_synth_yolo.py
+tests/          test_synthetic.py (modelsiz uçtan uca), test_negative.py (bulgu + kontrol testleri), make_synth_yolo.py
 ```

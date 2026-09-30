@@ -52,7 +52,7 @@ class YoloDetector:
         r = self.model.predict(image, conf=self.conf, imgsz=self.imgsz, device=self.device, verbose=False)[0]
         return sv.Detections.from_ultralytics(r)
 
-    def __call__(self, frame: np.ndarray) -> sv.Detections:
+    def __call__(self, frame: np.ndarray, frame_idx: Optional[int] = None) -> sv.Detections:
         d = self.slicer(frame) if self.slicer is not None else self._raw(frame)
         if len(d) == 0:
             return d
@@ -71,7 +71,7 @@ class YoloKeypoints:
         self.model = YOLO(weights)
         self.conf, self.imgsz, self.device = conf, imgsz, device
 
-    def __call__(self, frame: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def __call__(self, frame: np.ndarray, frame_idx: Optional[int] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         r = self.model.predict(frame, conf=self.conf, imgsz=self.imgsz, device=self.device, verbose=False)[0]
         if r.keypoints is None or len(r.keypoints) == 0:
             return None, None

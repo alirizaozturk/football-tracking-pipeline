@@ -62,7 +62,8 @@ def build_match_dataset(video_path: str | Path, out_dir: str | Path,
     else:
         stride = max(1, int(round(fps * fit_every_s)))
         frames = sv.get_video_frames_generator(str(video_path), stride=stride, start=start, end=end)
-        crops = collect_player_crops(tqdm(frames, desc="team crops", total=(end - start) // stride),
+        indexed = ((start + k * stride, f) for k, f in enumerate(frames))
+        crops = collect_player_crops(tqdm(indexed, desc="team crops", total=(end - start) // stride),
                                      detector, max_crops=max_fit_crops)
         print(f"[team] {len(crops)} oyuncu kırpıntısı ile '{team_method}' fit ediliyor")
         team_clf = TeamClassifier(team_method, device=device).fit(crops)
