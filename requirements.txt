@@ -1,0 +1,19 @@
+# PyTorch'u önce GPU'na uygun kur (bkz. README "Kurulum"), sonra: pip install -r requirements.txt
+ultralytics>=8.3.0
+supervision>=0.25.0
+trackers>=2.0            # ByteTrack; supervision.ByteTrack 0.31'de kaldırılıyor
+numpy
+opencv-python
+pandas
+pyarrow                  # parquet (yoksa CSV'ye düşer)
+scipy
+scikit-learn
+tqdm
+pyyaml
+
+# takım ayrımı - siglip backend (color backend bunlara ihtiyaç duymaz)
+transformers>=4.40
+umap-learn
+
+# sadece 01_download_datasets.py
+roboflow

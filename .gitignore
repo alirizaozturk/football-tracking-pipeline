@@ -1,0 +1,7 @@
+data/
+runs/
+outputs/
+tests/_out/
+*.pt
+*.mp4
+__pycache__/
