@@ -254,7 +254,8 @@ def run(out_root: Path) -> dict:
 
     res = dict(
         frames=n, rows=len(df), unique_track_ids=int(n_ids), people=n_people,
-        homography_coverage=float(meta["homography_coverage"]),
+        homography_coverage=float(meta["homography_coverage"]),            # sadece fresh
+        homography_carried_frac=float(meta["homography_carried_frac"]),
         line_score_median=float(meta["line_score_median"]),
         homography_rejected=meta["homography_rejected"],
         pos_err_median_m_fresh=float(fresh["err_m"].median()),
@@ -275,7 +276,9 @@ def test_synthetic(tmp_path=None):
     r = run(out)
     for k, v in r.items():
         print(f"{k:32s} {v}")
-    assert r["homography_coverage"] > 0.95
+    # 150 frame'in 8'inde keypoint bilerek yok (frame % 20 == 7) -> fresh en fazla 142/150; o frame'ler taşınan H ile dolar
+    assert r["homography_coverage"] > 0.93
+    assert r["homography_coverage"] + r["homography_carried_frac"] > 0.99
     assert r["line_score_median"] > 0.4
     assert r["pos_err_median_m_fresh"] < 0.3
     assert r["team_acc_players"] > 0.98

@@ -21,7 +21,7 @@ def radar_objects(rows) -> dict:
     return {
         "team0": ppl.loc[ppl["team"] == 0, ["xs", "ys"]].to_numpy(),
         "team1": ppl.loc[ppl["team"] == 1, ["xs", "ys"]].to_numpy(),
-        "referee": r.loc[r["cls"] == "referee", ["xs", "ys"]].to_numpy(),
+        "referee": r.loc[r["role"] == "referee", ["xs", "ys"]].to_numpy(),
         "ball": r.loc[(r["cls"] == "ball") & ~r["outlier"], ["xs", "ys"]].to_numpy(),
     }
 

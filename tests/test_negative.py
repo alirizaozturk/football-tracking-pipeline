@@ -11,6 +11,7 @@ Görsel gerçekçilik (gölge, pano, beyaz forma) burada YOK: onlar Faz K'da ger
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ import supervision as sv
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from fai.dataio import load_table  # noqa: E402
 from fai.models import PLAYER, make_tracker  # noqa: E402
 from fai.pipeline import TrackingPipeline  # noqa: E402
 from fai.pitch import PitchConfig  # noqa: E402
@@ -238,6 +240,66 @@ def test_lost_track_buffer_50fps(gap_s, same_id):
         assert later == first, f"{gap_s} s kayıptan sonra ID değişti ({first} -> {later})"
     else:
         assert later != first, f"{gap_s} s (> 2 s) kayıptan sonra aynı ID ({first}) geri geldi: kayıp track 2 s'den uzun tutuluyor"
+
+
+# ------------------------------------------------- #14 çizgi kanıtı yoksa (NaN) kabul edilmez
+def test_bulgu14_cizgi_kaniti_yoksa_fresh_degil():
+    """Projekte edilen çizgi örneklerinin görüntüde <30'u kalıyorsa skor NaN; bugün NaN 'fresh' kabul ediliyor
+    (03_check_keypoints aynı durumda RED diyor). Yapay geometri: 2, 3, 10, 11 numaralı noktalar görüntü köşelerine
+    1.5 px içeride oturuyor; bütün çizgiler kenar toleransının dışında kalıyor, doğrulanacak çizgi yok."""
+    kp, conf = np.zeros((32, 2)), np.zeros(32)
+    kp[[1, 2, 9, 10]] = [[1.5, 1.5], [1.5, H - 1.5], [W - 1.5, 1.5], [W - 1.5, H - 1.5]]   # kp 2, 3, 10, 11
+    conf[[1, 2, 9, 10]] = 0.9
+    ht = htracker()
+    _, src = ht.update(kp, conf, np.full((H, W, 3), GRASS, np.uint8))
+    assert src != "fresh", f"çizgi kanıtı olmadan 'fresh' kabul edildi (line_score={ht.last_line_score})"
+
+
+# ------------------------------------------------ #15 homography_coverage sadece fresh
+def test_bulgu15_homography_coverage_sadece_fresh(tmp_path):
+    """meta.json'daki homography_coverage taşınan (carried) H'yi de kapsama sayıyor; README'deki Bitti kriteri şişik."""
+    from fai.build import build_match_dataset
+    from fai.teams import TeamClassifier
+    Hm = camera(50.0)
+    frame = lines_frame(Hm)
+    video = tmp_path / "v.mp4"
+    with sv.VideoSink(str(video), sv.VideoInfo(width=W, height=H, fps=25)) as sink:
+        for _ in range(30):
+            sink.write_frame(frame)
+    kp, conf = keypoints(Hm)
+
+    def detector(fr, idx):
+        return sv.Detections(xyxy=np.array([[600.0, 300, 630, 380], [700.0, 320, 730, 400]]),
+                             confidence=np.array([0.9, 0.9]), class_id=np.array([PLAYER, PLAYER]))
+
+    def keypointer(fr, idx):
+        return (kp, conf) if idx < 10 else (None, None)          # 10 fresh, sonra keypoint yok -> carried / none
+
+    out = tmp_path / "m"
+    out.mkdir()
+    crops = [np.full((40, 20, 3), c, np.uint8) for c in ([30, 30, 200], [200, 120, 20]) * 10]
+    TeamClassifier("color").fit(crops).save(out / "team_classifier.pkl")
+    build_match_dataset(video, out, detector, keypointer, team_method="color")
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    src = load_table(out / "frames")["h_src"]
+    fresh, carried = (src == "fresh").mean(), (src == "carried").mean()
+    assert abs(meta["homography_coverage"] - fresh) < 1e-3, (           # meta 4 ondalığa yuvarlar
+        f"homography_coverage={meta['homography_coverage']:.3f}, fresh oranı={fresh:.3f}, carried oranı={carried:.3f}")
+
+
+# ------------------------------------------- #16 homography yokken xs/ys uydurulmaz
+def test_bulgu16_homography_yokken_xs_uydurulmaz():
+    """Takip edilen oyuncunun 10-14. frame'lerinde homography yok (x=NaN, h_src=none). Yumuşatma (rolling,
+    min_periods=1) bu frame'lere komşulardan değer uyduruyor."""
+    rows = []
+    for f in range(30):
+        miss = 10 <= f < 15
+        rows.append(dict(frame=f, t=f / FPS, track_id=3, cls="player", conf=0.9, team_raw=0, x1=0.0, y1=0.0, x2=1.0,
+                         y2=1.0, u=0.0, v=0.0, x=np.nan if miss else 30.0 + 0.2 * f, y=np.nan if miss else 20.0,
+                         h_src="none" if miss else "fresh"))
+    out = postprocess(pd.DataFrame(rows), frames_df(30), FPS)
+    gap = out[(out.frame >= 10) & (out.frame < 15)]
+    assert gap[["xs", "ys"]].isna().all().all(), f"x=NaN olduğu halde xs dolduruldu: {gap['xs'].round(2).tolist()}"
 
 
 if __name__ == "__main__":

@@ -82,14 +82,22 @@ class YoloKeypoints:
         return xy[i], kc[i]
 
 
-def make_tracker(fps: float):
-    """ByteTrack. Yeni `trackers` paketi varsa onu, yoksa eski supervision sürümünü kullanır."""
+def make_tracker(fps: float, cfg=None):
+    """ByteTrack. Yeni `trackers` paketi varsa onu, yoksa eski supervision sürümünü kullanır.
+    cfg: PipelineConfig (track_* alanları); None ise varsayılanlar. İki kütüphane de lost_track_buffer'ı
+    "30 fps'teki frame sayısı" olarak alıp frame_rate/30 ile kendisi ölçekler; bu yüzden saniye * 30 veriyoruz."""
+    if cfg is None:
+        from .pipeline import PipelineConfig
+        cfg = PipelineConfig()
+    buffer_30fps = int(round(cfg.track_buffer_s * 30))
     try:
         from trackers import ByteTrackTracker
-        t = ByteTrackTracker(frame_rate=fps, lost_track_buffer=int(fps * 2),
-                             track_activation_threshold=0.25, high_conf_det_threshold=0.5,
-                             minimum_consecutive_frames=1)
-        return lambda d: t.update(d)
     except ImportError:
-        t = sv.ByteTrack(frame_rate=int(round(fps)), lost_track_buffer=int(fps * 2))
+        t = sv.ByteTrack(frame_rate=int(round(fps)), lost_track_buffer=buffer_30fps,
+                         track_activation_threshold=cfg.track_activation,
+                         minimum_consecutive_frames=cfg.track_min_consecutive)
         return lambda d: t.update_with_detections(d)
+    t = ByteTrackTracker(frame_rate=fps, lost_track_buffer=buffer_30fps,
+                         track_activation_threshold=cfg.track_activation, high_conf_det_threshold=cfg.track_high_conf,
+                         minimum_consecutive_frames=cfg.track_min_consecutive, minimum_iou_threshold=cfg.track_min_iou)
+    return lambda d: t.update(d)

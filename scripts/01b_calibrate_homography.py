@@ -32,7 +32,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fai.homography import HomographyResult, fit_homography, is_plausible, line_support  # noqa: E402
+from fai.homography import (HomographyResult, LineCheck, fit_homography, is_plausible, line_evidence,  # noqa: E402
+                            line_mask, probe_offsets)
 from fai.pipeline import TrackingPipeline  # noqa: E402
 from fai.pitch import PitchConfig  # noqa: E402
 
@@ -53,7 +54,7 @@ INK, INK2, MUTED, GRIDC, AXIS, SURF = "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
 
 # ------------------------------------------------------------------ geometri / skor
 def pitch_samples(step: float = 0.5) -> np.ndarray:
-    """fai.homography.line_support ile aynı örnekleme."""
+    """fai.homography.pitch_line_samples ile aynı örnekleme."""
     seg = []
     for pl in P.polylines():
         for a, b in zip(pl[:-1], pl[1:]):
@@ -214,11 +215,14 @@ def evaluate_main(items, log):
                 kind = "correct" if d == (0.0, 0.0) else ("grid" if d in GRID else "diag")
                 sc_rows.append(dict(split=split, image=ip.name, variant=mname, tol=tk, dx=d[0], dy=d[1], kind=kind,
                                     s=s, margin=m, geo=geo[d], pipe_acc=np.nan))
-        # kendi skorumuzun kütüphane ile aynı olduğunu doğrula (hsv, sabit tol, kaymasız)
-        ref = line_support(frame, res, P.polylines())
-        mine = score(variant_masks(frame, ("fixed",), ())[("hsv", "fixed")][0], res.H_pitch2img, (0, 0), 2)
-        if np.isfinite(ref) or np.isfinite(mine):
-            max_diff = max(max_diff, abs(ref - mine))
+        # kendi skor + marjımızın kütüphaneninkiyle aynı olduğunu doğrula (top-hat 10, tol W/640)
+        lm, ltol = line_mask(frame, LineCheck(tophat_thr=10.0, tol_div=640.0))
+        ref = line_evidence(lm, ltol, res.H_pitch2img, BASE, probe_offsets((2.0, 4.0, 7.0)), MIN_SAMPLES)
+        md, tol = variant_masks(frame, ("scaled",), (10,))[("tophat10", "scaled")]
+        mine = score_and_margin(md, res.H_pitch2img, (0.0, 0.0), tol)
+        for r_, m_ in zip(ref, mine):
+            if np.isfinite(r_) or np.isfinite(m_):
+                max_diff = max(max_diff, abs(r_ - m_))
         img_rows.append(row)
         if (i + 1) % 25 == 0:
             log(f"  {i + 1}/{len(items)} görüntü")
@@ -393,6 +397,226 @@ def plot_scatter(sc, vname, tk, tau, mu, path):
     plt.close(fig)
 
 
+# ------------------------------------------------------------- Faz A: gürültü çalışması
+NOISE_SIGMAS = (0.0, 1.0, 2.0)          # 640 girişte px; görüntüde sigma * W / 640
+NOISE_DRAWS = 5                         # sigma > 0 için görüntü başına gürültü çekilişi
+SCORE_MODES = (0.75, 0.5, None)         # None = skor eşiği yok (geometri + marj)
+TOL_DIVS = (640.0, 427.0, 320.0)
+NOISE_THRS = (5.0, 7.0, 10.0)
+BASE_STRUCT = (0.75, 640.0)             # Faz K önerisi
+NOISE_MU = 0.12                         # marj eşiği tüm hücrelerde sabit (Faz K değeri)
+MIN_GAIN = 0.05                         # "belirgin": valid'de sigma=1 FRR'de en az 5 puan düşüş
+
+
+def noise_study(items, out: Path, log, seed: int = 0):
+    """Gürültü altında red/kabul: sigma x skor eşiği x tolerans x top-hat eşiği. Kütüphane fonksiyonlarıyla."""
+    from fai.homography import judge_lines, line_evidence, line_mask, pitch_line_samples, probe_offsets, LineCheck
+    rng = np.random.default_rng(seed)
+    samples = pitch_line_samples(P.polylines(), 0.5)
+    offsets = probe_offsets((2.0, 4.0, 7.0))
+    rows, checked = [], False
+    for n_img, (split, ip, k) in enumerate(items):
+        frame = cv2.imread(str(ip))
+        h, w = frame.shape[:2]
+        vis = k[:, 2] > 0
+        kp0 = k[:, :2] * [w, h]
+        th = tophat_response(frame)
+        masks = {}
+        for thr in NOISE_THRS:
+            binm = (th >= thr).astype(np.uint8)
+            for td in TOL_DIVS:
+                tol = max(1, int(round(w / td)))
+                masks[(thr, td)] = (dilate(binm, tol), tol)
+        if not checked:                                   # buradaki maske == kütüphanenin line_mask'i
+            for (thr, td), (m_, tol) in masks.items():
+                lm, ltol = line_mask(frame, LineCheck(tophat_thr=thr, tol_div=td))
+                assert ltol == tol and np.array_equal(lm, m_), (thr, td)
+            checked = True
+        for sigma in NOISE_SIGMAS:
+            for draw in range(1 if sigma == 0 else NOISE_DRAWS):
+                kp = kp0 + rng.normal(0, sigma * w / 640, kp0.shape)
+                res = fit_homography(kp[vis], P.vertices[vis], 8.0 * w / 1280)
+                base = dict(split=split, image=ip.name, sigma=sigma, draw=draw)
+                if res is None or res.reproj_rmse_px > 15.0 * w / 1280:
+                    rows.append(dict(base, thr=np.nan, tol_div=np.nan, kind="correct", fit_ok=False, geo=False,
+                                     s=np.nan, m=np.nan))
+                    continue
+                geo = {d: is_plausible(shifted(res, d) if d != (0.0, 0.0) else res, w, h, P.length, P.width)
+                       for d in [(0.0, 0.0)] + GRID}
+                for (thr, td), (m_, tol) in masks.items():
+                    for d in [(0.0, 0.0)] + GRID:
+                        s, mg = line_evidence(m_, tol, res.H_pitch2img, samples, offsets + np.asarray(d), 30)
+                        rows.append(dict(base, thr=thr, tol_div=td, kind="correct" if d == (0.0, 0.0) else "shift",
+                                         fit_ok=True, geo=geo[d], s=s, m=mg))
+        if (n_img + 1) % 10 == 0:
+            log(f"  gürültü: {n_img + 1}/{len(items)} görüntü")
+    df = pd.DataFrame(rows)
+
+    def reasons(g: pd.DataFrame, min_score) -> pd.Series:
+        r = pd.Series("", index=g.index, dtype=object)
+        chk = LineCheck(min_score=min_score, min_margin=NOISE_MU)
+        lr = [judge_lines(s, m, chk) for s, m in zip(g["s"], g["m"])]
+        r[:] = lr
+        r[~g["geo"].astype(bool)] = "geometry"
+        r[~g["fit_ok"].astype(bool)] = "fit"
+        return r
+
+    def cell(split, sigma, thr, td, min_score):
+        g = df[(df.split == split) & (df.sigma == sigma)]
+        failed_fit = g[~g.fit_ok.astype(bool)]
+        g = g[(g.thr == thr) & (g.tol_div == td)]
+        c = pd.concat([g[g.kind == "correct"], failed_fit])
+        sh = g[g.kind == "shift"]
+        rc, rs = reasons(c, min_score), reasons(sh, min_score)
+        out = {"FRR": rate(rc != ""), "FAR": rate(rs == "")}
+        for why in ("fit", "geometry", "score", "margin"):
+            out[f"rej_{why}"] = float((rc == why).mean()) if len(rc) else float("nan")
+        ok_fit = c[c.fit_ok.astype(bool)]
+        out["fail_score_alone"] = float((~np.isfinite(ok_fit.s) | (ok_fit.s < (min_score or -1))).mean()) if len(ok_fit) else np.nan
+        out["fail_margin_alone"] = float((~np.isfinite(ok_fit.m) | (ok_fit.m < NOISE_MU)).mean()) if len(ok_fit) else np.nan
+        out["fail_geo_alone"] = float((~ok_fit.geo.astype(bool)).mean()) if len(ok_fit) else np.nan
+        return out
+
+    def key(ms):
+        return "yok" if ms is None else f"{ms:.2f}"
+
+    tab = {}
+    for split in ("valid", "test"):
+        for sigma in NOISE_SIGMAS:
+            for thr in NOISE_THRS:
+                for td in TOL_DIVS:
+                    for ms in SCORE_MODES:
+                        tab[(split, sigma, thr, td, key(ms))] = cell(split, sigma, thr, td, ms)
+
+    # --- madde 3: yapı kararı (sadece valid, thr=10)
+    def v(sigma, td, ms, metric, thr=10.0):
+        return tab[("valid", sigma, thr, td, key(ms))][metric]["rate"]
+
+    b_ms, b_td = BASE_STRUCT
+    cands = []
+    for td in TOL_DIVS:
+        for ms in SCORE_MODES:
+            if (ms, td) == (b_ms, b_td):
+                continue
+            ok = (v(0.0, td, ms, "FAR") == 0.0
+                  and v(1.0, td, ms, "FAR") <= v(1.0, b_td, b_ms, "FAR") + 0.01
+                  and v(2.0, td, ms, "FAR") <= v(2.0, b_td, b_ms, "FAR") + 0.01
+                  and v(1.0, td, ms, "FRR") <= v(1.0, b_td, b_ms, "FRR") - MIN_GAIN
+                  and v(2.0, td, ms, "FRR") <= v(2.0, b_td, b_ms, "FRR")
+                  and v(0.0, td, ms, "FRR") <= v(0.0, b_td, b_ms, "FRR"))
+            if ok:
+                cands.append((v(1.0, td, ms, "FRR"), v(2.0, td, ms, "FRR"), ms is not None, td, ms))
+    chosen_ms, chosen_td = (min(cands)[4], min(cands)[3]) if cands else (b_ms, b_td)
+
+    # --- madde 4: top-hat eşiği (sadece valid, seçilen yapıyla)
+    def vt(thr, sigma, metric):
+        return tab[("valid", sigma, thr, chosen_td, key(chosen_ms))][metric]["rate"]
+
+    thr_cands = [(vt(t, 1.0, "FRR"), t) for t in (5.0, 7.0)
+                 if vt(t, 0.0, "FAR") == 0.0 and vt(t, 1.0, "FRR") <= vt(10.0, 1.0, "FRR") - MIN_GAIN
+                 and vt(t, 0.0, "FRR") <= vt(10.0, 0.0, "FRR")]
+    chosen_thr = min(thr_cands)[1] if thr_cands else 10.0
+
+    pay = {}                                               # Faz K tarzı ayrışma payı (valid, sigma=0, tol seçilen)
+    for thr in NOISE_THRS:
+        g = df[(df.split == "valid") & (df.sigma == 0) & (df.thr == thr) & (df.tol_div == chosen_td) & df.geo.astype(bool)]
+        pay[thr] = float(np.nanquantile(g[g.kind == "correct"].m, 0.04) - np.nanquantile(g[g.kind == "shift"].m, 0.99))
+
+    decision = {"score_threshold": chosen_ms, "tol_div": chosen_td, "tophat_thr": chosen_thr, "min_margin": NOISE_MU,
+                "structure_candidates": [{"tol_div": c[3], "score": c[4], "valid_FRR_s1": c[0], "valid_FRR_s2": c[1]} for c in cands],
+                "tophat_candidates": [{"thr": t, "valid_FRR_s1": f} for f, t in thr_cands]}
+    df.to_csv(out / "noise.csv", index=False)
+    return tab, decision, pay
+
+
+def perf_study(items, log, n_rep: int = 3):
+    """1080p'de çizgi kontrolünün frame başına süresi (kütüphanenin HomographyTracker yolu)."""
+    from fai.homography import line_evidence, line_mask
+    from fai.pipeline import PipelineConfig, build_htracker
+    cfg = PipelineConfig()
+    chk = cfg.line_check()
+    ht = build_htracker(P, cfg)
+    t_mask, t_ev, t_upd = [], [], []
+    for split, ip, k in items:
+        frame = cv2.imread(str(ip))
+        h, w = frame.shape[:2]
+        vis = k[:, 2] > 0
+        kp = np.where(vis[:, None], k[:, :2] * [w, h], 0.0)
+        res = fit_homography(kp[vis], P.vertices[vis], 8.0 * w / 1280)
+        for _ in range(n_rep):
+            t0 = time.perf_counter(); mt = line_mask(frame, chk); t1 = time.perf_counter()
+            line_evidence(mt[0], mt[1], res.H_pitch2img, ht._samples, ht._offsets, chk.min_samples); t2 = time.perf_counter()
+            ht.reset(); ht.update(kp, vis.astype(float), frame); t3 = time.perf_counter()
+            t_mask.append(t1 - t0); t_ev.append(t2 - t1); t_upd.append(t3 - t2)
+    ms = lambda a: {"median": round(1e3 * float(np.median(a)), 2), "p90": round(1e3 * float(np.percentile(a, 90)), 2)}  # noqa: E731
+    return {"width": w, "height": h, "mask_ms": ms(t_mask), "evidence_13H_ms": ms(t_ev),
+            "update_total_ms": ms(t_upd), "n": len(t_upd)}
+
+
+def noise_report(tab, decision, pay, perf, out: Path):
+    L = ["# Faz A — gürültü altında çizgi kontrolü (field v12, valid + test)\n",
+         f"Keypoint gürültüsü sigma = {', '.join(str(s) for s in NOISE_SIGMAS)} px (640 girişte; 1920 px'te x3). "
+         f"sigma > 0 için görüntü başına {NOISE_DRAWS} çekiliş. H gürültülü keypoint'lerden RANSAC (8·W/1280 px) ile fit edilir; "
+         "rmse > 15·W/1280 ise 'fit' reddi. FAR: aynı gürültülü H'nin ±3/5/10 m x/y kaymaları. Marj eşiği her hücrede "
+         f"{NOISE_MU}. Kararlar sadece **valid**'den, önceden yazılı kurallarla; test sadece rapor.\n",
+         "## 1. Reddin kritere göre dağılımı (top-hat 10)\n",
+         "Sıralı atama: fit/rmse → geometri → skor → marj (frames.parquet'teki reject_reason ile aynı). "
+         "'tek başına' sütunları: fit'i geçen doğru H'lerde o kriterin kendi başına red oranı (örtüşür).\n",
+         "| yapı | split | sigma | FRR | fit/rmse | geometri | skor | marj | skor tek başına | marj tek başına |\n|---|---|---|---|---|---|---|---|---|---|"]
+    structs = [("Faz K: skor 0.75, tol W/640", 0.75, 640.0),
+               (f"seçilen: skor {'yok' if decision['score_threshold'] is None else decision['score_threshold']}, tol W/{decision['tol_div']:.0f}",
+                decision["score_threshold"], decision["tol_div"])]
+    k = lambda ms: "yok" if ms is None else f"{ms:.2f}"  # noqa: E731
+    for name, ms, td in structs:
+        for split in ("valid", "test"):
+            for s in NOISE_SIGMAS:
+                c = tab[(split, s, 10.0, td, k(ms))]
+                L.append(f"| {name} | {split} | {s:.0f} | %{100 * c['FRR']['rate']:.1f} | %{100 * c['rej_fit']:.1f} | "
+                         f"%{100 * c['rej_geometry']:.1f} | %{100 * c['rej_score']:.1f} | %{100 * c['rej_margin']:.1f} | "
+                         f"%{100 * c['fail_score_alone']:.1f} | %{100 * c['fail_margin_alone']:.1f} |")
+    L.append("\n## 2. Skor eşiği x tolerans x gürültü (top-hat 10) — hücre: doğru H reddi / kaydırılmış H kabulü\n")
+    L.append("| skor eşiği | tol | sigma=0 valid | sigma=0 test | sigma=1 valid | sigma=1 test | sigma=2 valid | sigma=2 test |\n|---|---|---|---|---|---|---|---|")
+    pc = lambda r: f"%{100 * r['rate']:.1f}"  # noqa: E731
+    for ms in SCORE_MODES:
+        for td in TOL_DIVS:
+            cells = []
+            for s in NOISE_SIGMAS:
+                for split in ("valid", "test"):
+                    c = tab[(split, s, 10.0, td, k(ms))]
+                    cells.append(f"{pc(c['FRR'])} / {pc(c['FAR'])}")
+            L.append(f"| {k(ms)} | W/{td:.0f} | " + " | ".join(cells) + " |")
+    n_c = tab[("valid", 1.0, 10.0, 640.0, "0.75")]["FRR"]["n"]
+    L.append(f"\n(valid hücre başına doğru H sayısı: sigma=0 → 30, sigma>0 → {n_c}; kaydırılmış H 12 katı.)\n")
+    L.append("## 3. Yapı kararı (madde 3)\n")
+    L.append(f"Kural (valid, top-hat 10): sigma=0 FAR %0; sigma=1 ve 2'de FAR baz çizginin en fazla 1 puan üstü; sigma=1 FRR "
+             f"baz çizgiden (skor 0.75, W/640) en az {100 * MIN_GAIN:.0f} puan düşük; sigma=2 ve sigma=0 FRR kötüleşmiyor. "
+             "Uygunlar arasında sigma=1 FRR en düşük, sonra sigma=2 FRR, sonra skor eşiği olmayan, sonra küçük tolerans.\n")
+    if decision["structure_candidates"]:
+        L.append("Uygun adaylar: " + "; ".join(f"skor {k(c['score'])}, W/{c['tol_div']:.0f} (sigma=1 FRR %{100 * c['valid_FRR_s1']:.1f}, "
+                                               f"sigma=2 %{100 * c['valid_FRR_s2']:.1f})" for c in decision["structure_candidates"]))
+    else:
+        L.append("Uygun aday yok.")
+    L.append(f"\n**Karar: skor eşiği {k(decision['score_threshold'])}, tolerans W/{decision['tol_div']:.0f}.**\n")
+    L.append("## 4. Top-hat eşiği (madde 4) — seçilen yapıyla\n")
+    L.append("| top-hat eşiği | valid pay (sigma=0) | " + " | ".join(f"sigma={s:.0f} valid / test (FRR / FAR)" for s in NOISE_SIGMAS) + " |\n|---|---|---|---|---|")
+    for thr in NOISE_THRS:
+        cells = []
+        for s in NOISE_SIGMAS:
+            cv_, ct = (tab[(sp, s, thr, decision["tol_div"], k(decision["score_threshold"]))] for sp in ("valid", "test"))
+            cells.append(f"{pc(cv_['FRR'])} / {pc(cv_['FAR'])} · {pc(ct['FRR'])} / {pc(ct['FAR'])}")
+        L.append(f"| {thr:.0f} | {pay[thr]:+.3f} | " + " | ".join(cells) + " |")
+    L.append(f"\nKural: 5 ya da 7, valid'de sigma=0 FAR %0 tutup sigma=1 FRR'yi 10'a göre en az {100 * MIN_GAIN:.0f} puan düşürürse "
+             f"(sigma=0 FRR kötüleşmeden) seçilir; yoksa 10. **Karar: {decision['tophat_thr']:.0f}.**\n")
+    L.append("## 5. Performans (madde 6) — 1080p, kütüphanenin HomographyTracker yolu\n")
+    L.append(f"Maske frame başına bir kez hesaplanır; skor + 12 probe aynı maskeyi kullanır ve tek perspectiveTransform çağrısında "
+             f"projekte edilir. n={perf['n']} ölçüm ({perf['width']}x{perf['height']}).\n")
+    L.append("| adım | medyan ms | p90 ms |\n|---|---|---|")
+    for name, kk in (("çizgi maskesi (LAB + top-hat + dilate)", "mask_ms"), ("skor + 12 probe (1 H)", "evidence_13H_ms"),
+                     ("HomographyTracker.update toplam (fit + geometri + maske + kanıt)", "update_total_ms")):
+        L.append(f"| {name} | {perf[kk]['median']} | {perf[kk]['p90']} |")
+    (out / "noise.md").write_text("\n".join(L) + "\n", encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -400,6 +624,8 @@ def main():
     ap.add_argument("--out", default=None, help="varsayılan outputs/calibration/<dataset klasörü>")
     ap.add_argument("--splits", nargs="+", default=["valid", "test", "train"])
     ap.add_argument("--no-resolution", action="store_true")
+    ap.add_argument("--noise", action="store_true", help="Faz A gürültü çalışması + performans (noise.md)")
+    ap.add_argument("--noise-only", action="store_true", help="sadece gürültü çalışması")
     a = ap.parse_args()
     root = Path(a.data)
     out = Path(a.out or f"outputs/calibration/{root.name}")
@@ -407,12 +633,25 @@ def main():
     t0 = time.time()
     log = lambda m: print(m, flush=True)  # noqa: E731
 
+    if a.noise or a.noise_only:
+        vt = load_items(root, ["valid", "test"])
+        log(f"[gürültü] {len(vt)} görüntü (valid + test)")
+        tab, decision, pay = noise_study(vt, out, log)
+        perf = perf_study([x for x in vt if x[0] == "valid"], log)
+        noise_report(tab, decision, pay, perf, out)
+        (out / "noise.json").write_text(json.dumps({"decision": decision, "pay": pay, "perf": perf,
+                                                    "table": {"|".join(map(str, kk)): vv for kk, vv in tab.items()}},
+                                                   indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+        log(f"[gürültü] karar: {decision['score_threshold']=}, {decision['tol_div']=}, {decision['tophat_thr']=}; perf {perf}")
+        if a.noise_only:
+            return
+
     items = load_items(root, a.splits)
     log(f"[veri] {len(items)} görüntü: " + ", ".join(f"{s}={sum(1 for x in items if x[0] == s)}" for s in a.splits))
     img, sc, max_diff = evaluate_main(items, log)
     img.to_csv(out / "per_image.csv", index=False)
     sc.to_csv(out / "scores.csv", index=False)
-    log(f"[skor] kütüphane line_support ile fark (hsv, sabit tol): max {max_diff:.2e}")
+    log(f"[skor] kütüphane line_evidence ile fark (top-hat 10, tol W/640; skor+marj): max {max_diff:.2e}")
 
     # 1) GT fit + geometri
     summ = {"dataset": str(root), "n_images": {s: int((img.split == s).sum()) for s in a.splits},
@@ -457,7 +696,14 @@ def main():
     ok = {s: bool(best[f"B_{s}_FAR"]["rate"] < TARGET_FAR and best[f"B_{s}_FRR"]["rate"] < TARGET_FRR)
           for s in a.splits if f"B_{s}_FAR" in best}
     geo_all = rate(fit[fit.split.isin(["valid", "test"])].geo_ok.astype(bool))
-    summ["targets_met"] = {"geo_valid_test": bool(geo_all["rate"] >= TARGET_GEO), **{f"rule_B_{s}": v for s, v in ok.items()}}
+    summ["targets_met"] = {"geo_valid_test": bool(geo_all["rate"] >= TARGET_GEO), **{f"rule_B_{s}": v for s, v in ok.items()},
+                           **{f"pipeline_{s}": bool(p["FAR_grid"]["rate"] < TARGET_FAR and p["FRR"]["rate"] < TARGET_FRR)
+                              for s, p in summ["pipeline_today"].items()}}
+    from fai.pipeline import PipelineConfig
+    _c = PipelineConfig()
+    pipe_desc = (f"top-hat {_c.line_tophat_thr:g}, çekirdek W/{_c.line_kernel_div:g}, tol W/{_c.line_tol_div:g}, "
+                 f"skor eşiği {'yok' if _c.min_line_score is None else _c.min_line_score}, marj ≥ {_c.min_line_margin}, "
+                 f"probe ±{'/'.join(f'{p:g}' for p in _c.line_probes_m)} m, RANSAC {_c.ransac_px:g}·W/{_c.ref_width:g} px, NaN = red")
     breakdown = far_breakdown(sc, best["variant"], best["tol"], best["tauB"], best["muB"], ("test",))
 
     # 4) çözünürlük
@@ -476,7 +722,7 @@ def main():
         summ["resolution"] = res_tab.to_dict("records")
 
     # 5) grafikler
-    panels = [("hsv", "fixed", "HSV maske, tol 2 px (bugünkü)"), ("hsv", "scaled", "HSV maske, tol ölçekli"),
+    panels = [("hsv", "fixed", "HSV maske, tol 2 px (Faz A öncesi kod)"), ("hsv", "scaled", "HSV maske, tol ölçekli"),
               (best_th["variant"], "fixed", f"{best_th['variant']}, tol 2 px"),
               (best_th["variant"], "scaled", f"{best_th['variant']}, tol ölçekli")]
     thr_s = {(r["variant"], r["tol"]): r["tauB"] for r in recs}
@@ -502,11 +748,13 @@ def main():
              f"{'TUTTU' if summ['targets_met']['geo_valid_test'] else 'TUTMADI'}.")
     if len(geo_fail):
         L.append("\nGeometriden kalanlar:\n\n" + md_table(geo_fail, 1))
-    L.append("\n## 2. Bugünkü kod (HomographyTracker.update: HSV, tol 2 px, eşik 0.15, NaN kabul)\n")
-    L.append("| split | doğru H reddi (FRR) | kaydırılmış H kabulü (FAR, ±3/5/10 m) | çapraz ±7 m kabulü |\n|---|---|---|---|")
+    L.append("\n## 2. Kütüphanenin kabul zinciri (HomographyTracker.update, PipelineConfig varsayılanları)\n")
+    L.append(f"Ayarlar: {pipe_desc}. GT keypoint'leri ve aynı keypoint'lerin tutarlı kaydırılmış halleri pipeline'a verilir.\n")
+    L.append("| split | doğru H reddi (FRR) | kaydırılmış H kabulü (FAR, ±3/5/10 m) | çapraz ±7 m kabulü | hedef (FAR<%5, FRR<%10) |\n|---|---|---|---|---|")
     for s in a.splits:
         p = summ["pipeline_today"][s]
-        L.append(f"| {s} | {fmt_rate(p['FRR'])} | {fmt_rate(p['FAR_grid'])} | {fmt_rate(p['FAR_diag'])} |")
+        L.append(f"| {s} | {fmt_rate(p['FRR'])} | {fmt_rate(p['FAR_grid'])} | {fmt_rate(p['FAR_diag'])} | "
+                 f"{'TUTTU' if summ['targets_met'][f'pipeline_{s}'] else 'TUTMADI'} |")
     L.append("\nKaydırılmış H kabulü, eksen ve büyüklüğe göre (valid+test):\n\n| eksen | kayma | kabul |\n|---|---|---|")
     for axis, m, r in pipe_break:
         L.append(f"| {axis} | ±{m} m | {fmt_rate(r)} |")
@@ -546,6 +794,8 @@ def main():
     L.append("- Örneklem küçük (valid 30, test 24); GA = %95 Wilson güven aralığı. train split'i ek kontrol: modelden bağımsız "
              "bir ölçüm olduğu için (çizgi/maske), eşik seçiminde kullanılmadığı sürece geçerli bir held-out örneklem.")
     L.append("- GT etiketleri FIFA 105x68 saha ölçüsüyle eşleniyor; gerçek saha ölçüsü farklıysa doğru H skoru biraz düşer.")
+    L.append("- Faz A öncesi kabul zincirinin (HSV maske, tol 2 px, skor ≥ 0.15, NaN kabul) aynı ölçümü: FRR valid/test/train "
+             "%26.7 / %16.7 / %17.6, FAR %50.3 / %61.5 / %57.5 (git b318bef, docs/calibration/field-v12/report.md).")
     L.append("- Şeffaflık: ilk deneme çalıştırmasında eşitlik bozucu 'valid FRR' idi ve tek görüntülük farkla (1/30 vs 2/30) "
              "tophat40'ı seçti. Bu istatistiksel olarak anlamsız olduğu için kural valid'deki ayrışma payına çevrildi. "
              "Değişiklik test sonuçları görüldükten sonra yapıldı; bu yüzden tüm varyantların test sonuçları 3. tabloda açıkça duruyor.")

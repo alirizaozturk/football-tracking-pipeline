@@ -18,24 +18,26 @@ Geometriden kalanlar:
 |---|---|---|---|---|
 | train | 42ba34_9_2_png.rf.9bf0f5d5ef6202770e2ed8e9016b2c8f.jpg | 16 | 13 | 2.9 |
 
-## 2. Bugünkü kod (HomographyTracker.update: HSV, tol 2 px, eşik 0.15, NaN kabul)
+## 2. Kütüphanenin kabul zinciri (HomographyTracker.update, PipelineConfig varsayılanları)
 
-| split | doğru H reddi (FRR) | kaydırılmış H kabulü (FAR, ±3/5/10 m) | çapraz ±7 m kabulü |
-|---|---|---|---|
-| valid | %26.7 (8/30; GA %14–44) | %50.3 (181/360; GA %45–55) | %26.7 (32/120; GA %20–35) |
-| test | %16.7 (4/24; GA %7–36) | %61.5 (177/288; GA %56–67) | %31.2 (30/96; GA %23–41) |
-| train | %17.6 (39/222; GA %13–23) | %57.5 (1532/2664; GA %56–59) | %28.9 (257/888; GA %26–32) |
+Ayarlar: top-hat 10, çekirdek W/128, tol W/640, skor eşiği yok, marj ≥ 0.12, probe ±2/4/7 m, RANSAC 8·W/1280 px, NaN = red. GT keypoint'leri ve aynı keypoint'lerin tutarlı kaydırılmış halleri pipeline'a verilir.
+
+| split | doğru H reddi (FRR) | kaydırılmış H kabulü (FAR, ±3/5/10 m) | çapraz ±7 m kabulü | hedef (FAR<%5, FRR<%10) |
+|---|---|---|---|---|
+| valid | %3.3 (1/30; GA %1–17) | %0.0 (0/360; GA %0–1) | %0.0 (0/120; GA %0–3) | TUTTU |
+| test | %0.0 (0/24; GA %0–14) | %0.0 (0/288; GA %0–1) | %0.0 (0/96; GA %0–4) | TUTTU |
+| train | %3.6 (8/222; GA %2–7) | %0.0 (0/2664; GA %0–0) | %0.0 (0/888; GA %0–0) | TUTTU |
 
 Kaydırılmış H kabulü, eksen ve büyüklüğe göre (valid+test):
 
 | eksen | kayma | kabul |
 |---|---|---|
-| x | ±3 m | %41.7 (45/108; GA %33–51) |
-| x | ±5 m | %38.0 (41/108; GA %29–47) |
-| x | ±10 m | %29.6 (32/108; GA %22–39) |
-| y | ±3 m | %75.0 (81/108; GA %66–82) |
-| y | ±5 m | %75.0 (81/108; GA %66–82) |
-| y | ±10 m | %72.2 (78/108; GA %63–80) |
+| x | ±3 m | %0.0 (0/108; GA %0–3) |
+| x | ±5 m | %0.0 (0/108; GA %0–3) |
+| x | ±10 m | %0.0 (0/108; GA %0–3) |
+| y | ±3 m | %0.0 (0/108; GA %0–3) |
+| y | ±5 m | %0.0 (0/108; GA %0–3) |
+| y | ±10 m | %0.0 (0/108; GA %0–3) |
 
 ## 3. Maske / tolerans / kural karşılaştırması
 
@@ -116,4 +118,5 @@ Karşılaştırma için en iyi HSV: tol scaled, B test FRR %4 / FAR %88; en iyi 
 - Kaydırılmış H, keypoint'lerin tutarlı biçimde yanlış çizgiye eşlenmesinin modelidir; gerçek model hatalarının hepsini temsil etmez (ör. tek keypoint'in yanlış yere kayması). Gerçek model hataları Faz 1'den sonra ölçülmeli.
 - Örneklem küçük (valid 30, test 24); GA = %95 Wilson güven aralığı. train split'i ek kontrol: modelden bağımsız bir ölçüm olduğu için (çizgi/maske), eşik seçiminde kullanılmadığı sürece geçerli bir held-out örneklem.
 - GT etiketleri FIFA 105x68 saha ölçüsüyle eşleniyor; gerçek saha ölçüsü farklıysa doğru H skoru biraz düşer.
+- Faz A öncesi kabul zincirinin (HSV maske, tol 2 px, skor ≥ 0.15, NaN kabul) aynı ölçümü: FRR valid/test/train %26.7 / %16.7 / %17.6, FAR %50.3 / %61.5 / %57.5 (git b318bef, docs/calibration/field-v12/report.md).
 - Şeffaflık: ilk deneme çalıştırmasında eşitlik bozucu 'valid FRR' idi ve tek görüntülük farkla (1/30 vs 2/30) tophat40'ı seçti. Bu istatistiksel olarak anlamsız olduğu için kural valid'deki ayrışma payına çevrildi. Değişiklik test sonuçları görüldükten sonra yapıldı; bu yüzden tüm varyantların test sonuçları 3. tabloda açıkça duruyor.

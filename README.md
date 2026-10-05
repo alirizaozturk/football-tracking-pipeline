@@ -18,11 +18,11 @@ video ──► detection (YOLO) ──► ByteTrack ──► takım (SigLIP→
 | Konu | Video | Burada | Neden |
 |---|---|---|---|
 | Saha ölçüsü | 120×70 m | 105×68 m, FIFA ceza sahası ölçüleri (`--length/--width`) | Hız/mesafe metre cinsinden doğru çıksın |
-| Homography | `findHomography`, frame başına | RANSAC + geometrik akıl kontrolü + **görüntüde çizgi desteği** (`line_score`); keypoint yoksa son H 12 frame taşınır | Model tutarlı ama yanlış keypoint seti üretebilir (ör. olmayan bir orta yuvarlak); 4 noktalı fit'te RMSE hep 0 olduğu için tek başına ölçü değil |
-| Takım ataması | frame başına | frame başına + **track bazında çoğunluk oyu** (`team`) | Frame frame titreme yok |
-| Hız | — | median + hareketli ortalama, 12 m/s üstü atılır | Homography gürültüsü ham farkla 60+ km/s üretir |
-| Top | ayrı model + slicer | aynı + fiziksel sıçrama filtresi + ≤1 s interpolasyon | |
-| Tracker | `sv.ByteTrack` | `trackers.ByteTrackTracker` (yoksa eski) | `sv.ByteTrack` supervision 0.31'de kaldırılıyor |
+| Homography | `findHomography`, frame başına | RANSAC + geometrik akıl kontrolü + **görüntüde çizgi kanıtı**: top-hat çizgi maskesinde H'nin yerel tepe olması (marj); keypoint yoksa son H en fazla 12 frame taşınır ama her frame'de aynı kuralla doğrulanır; sahne kesmesinde bırakılır | Model tutarlı ama yanlış keypoint seti üretebilir (çizgi yönünde kayma, olmayan bir orta yuvarlak); 4 noktalı fit'te RMSE hep 0 olduğu için tek başına ölçü değil. Eşikler gerçek görüntüyle kalibre (Faz K/A) |
+| Takım ataması | frame başına | frame başına + **track bazında çoğunluk oyu** (`team`, `role`; hakem dahil) | Frame frame titreme yok |
+| Hız | — | median + hareketli ortalama, 12 m/s üstü atılır; homography olmayan frame'e konum uydurulmaz | Homography gürültüsü ham farkla 60+ km/s üretir |
+| Top | ayrı model + slicer | aynı + fiziksel olarak tutarlı en uzun tespit zinciri (homography yoksa piksel uzayında) + sadece ≤1 s boşluklara interpolasyon | |
+| Tracker | `sv.ByteTrack` | `trackers.ByteTrackTracker` (yoksa eski); kayıp track 2 s, kesmede sıfırlanır, ilk frame'in −1'i geri doldurulur | `sv.ByteTrack` supervision 0.31'de kaldırılıyor |
 | Takım backend | SigLIP | SigLIP **veya** `color` (GPU'suz, Lab renk) | Hızlı deneme / zayıf makine |
 
 ## Kurulum
@@ -52,12 +52,12 @@ Her faz bir öncekinin çıktısını kullanır. **"Bitti"** satırı o fazın t
 ```bash
 pip check
 python -m tests.test_synthetic                 # uçtan uca sentetik test (çıktılar tests/_out/)
-python -m pytest tests -v                      # sentetik test + negatif testler
+python -m pytest tests -v                      # sentetik + negatif + Faz A testleri
 ```
 `test_synthetic`: modelsiz sentetik bir yayın videosu üretir, detector/keypoint yerine GT'den gürültülü çıktı veren sahteleri koyar; tracker, homography, takım, postprocess, analiz ve render gerçek kodla çalışır. Pipeline modelleri `model(frame, frame_idx)` diye çağırır; sahte modeller frame'i çağrı sırasından değil bu parametreden bilir (gerçek modeller `frame_idx`'i yok sayar).
 
-`test_negative`: analizde bulunan hataları mantık seviyesinde belgeler. `test_bulguNN_*` testleri düzeltmeler yapılana kadar **FAIL verir** (bulgu numaraları analiz raporundaki tabloya karşılık gelir): #1 x-kaymalı keypoint seti `fresh` kabul ediliyor, #2 kesme sonrası eski H taşınıyor, #6 ilk top tespiti sahteyse sonraki gerçek tespitler atılıyor, #7 uzun top boşluğunun ilk 1 s'si dolduruluyor, #8 hakem sınıf titremesi rol/takımı bozuyor, #9 conf 0.3–0.5 tespitler track almıyor ve 50 fps'te kayıp track 3.3 s tutuluyor. `test_kontrol_*` testleri bugün doğru olan davranışı sabitler, her zaman geçmeli.
-**Bitti:** `pip check` temiz, `test_synthetic` ve `test_kontrol_*` geçiyor, `tests/_out/render_mid.png` radar + Voronoi ile oluşmuş. (`test_bulgu*` Faz A'da geçecek.)
+`test_negative`: analizde bulunan hataları mantık seviyesinde belgeler (bulgu numaraları analiz raporundaki tabloya karşılık gelir). Faz 0'da mevcut kodda FAIL veriyorlardı, Faz A düzeltmeleriyle geçiyorlar: #1 x-kaymalı keypoint seti `fresh` kabul ediliyordu, #2 kesme sonrası eski H taşınıyordu, #6 ilk top tespiti sahteyse sonraki gerçek tespitler atılıyordu, #7 uzun top boşluğunun ilk 1 s'si dolduruluyordu, #8 hakem sınıf titremesi rol/takımı bozuyordu, #9 conf 0.3–0.5 tespitler track almıyordu ve 50 fps'te kayıp track 3.3 s tutuluyordu, #14 çizgi kanıtı olmadan (NaN) H kabul ediliyordu, #15 `homography_coverage` taşınan H'yi de sayıyordu, #16 homography olmayan frame'e yumuşatma konum uyduruyordu. `test_kontrol_*` doğru davranışı sabitler (ör. her H'yi reddeden bir "düzeltme" bunları bozar). `test_faz_a`: Faz A'da eklenen yollar (piksel uzayında top filtresi, ilk frame geri doldurma, sahne kesmesi, red sebebi kaydı, CLI ↔ config).
+**Bitti:** `pip check` temiz, `pytest tests` tamamen geçiyor, `tests/_out/render_mid.png` radar + Voronoi ile oluşmuş.
 
 ### Faz K — Homography doğrulamasının gerçek görüntüyle kalibrasyonu (eğitim yok)
 ```bash
@@ -68,11 +68,26 @@ Field datasetinin GT keypoint'lerinden her görüntü için homography fit edili
 
 field v12 sonucu (özet):
 - Geometri: valid+test 54/54, train 221/222. Kalan tek görüntü dataset etiket hatası (yakın/uzak noktalar aynalanmış). Keypoint sırası ve y=0 = uzak taç çizgisi konvansiyonu doğrulandı.
-- **Bugünkü kontrol gerçek yayında işlemiyor.** HSV maskesi gerçek çizgi piksellerinin sadece ~%33'ünü "beyaz" sayıyor (çizgilerin medyan doygunluğu S≈79 > 70). Sonuç: doğru H'lerin %17–27'si reddediliyor, kaydırılmış H'lerin %50–62'si kabul ediliyor.
-- Önerilen ayar (Faz A'da uygulanacak, henüz kodda değil): top-hat maske (L kanalı, eşik 10, çekirdek W/128), çözünürlükle ölçekli tolerans (W/640 px), kabul = geometri ∧ skor ≥ 0.75 ∧ marj ≥ 0.12. Doğru H reddi valid/test/train %6.7 / %4.2 / %5.0; kaydırılmış H kabulü üçünde de %0.
-- Uyarı: bu eşikler hatasız GT keypoint'leriyle kalibre edildi. 640 girişte σ=1 px keypoint gürültüsünde 1080p'de doğru H reddi ~%13'e, σ=2 px'te ~%57'ye çıkıyor. Faz 1'de eğitilen modelin gerçek keypoint'leriyle yeniden kalibre edilmeli.
+- **Faz A öncesi kontrol gerçek yayında işlemiyordu.** HSV maskesi gerçek çizgi piksellerinin sadece ~%33'ünü "beyaz" sayıyordu (çizgilerin medyan doygunluğu S≈79 > 70). Sonuç: doğru H'lerin %17–27'si reddediliyor, kaydırılmış H'lerin %50–62'si kabul ediliyordu.
+- Faz K önerisi: top-hat maske (L kanalı, eşik 10, çekirdek W/128), çözünürlükle ölçekli tolerans (W/640 px), kabul = geometri ∧ skor ≥ 0.75 ∧ marj ≥ 0.12. Doğru H reddi valid/test/train %6.7 / %4.2 / %5.0; kaydırılmış H kabulü üçünde de %0. Faz A'da uygulandı; gürültü çalışmasından sonra skor eşiği kaldırıldı (aşağıda).
+- Uyarı: eşikler hatasız GT keypoint'leriyle kalibre edildi; keypoint gürültüsünde doğru H reddi artıyor. Faz 1'de eğitilen modelin gerçek keypoint'leriyle yeniden kalibre edilecek.
 
 **Bitti:** GT görüntülerinin ≥%95'i geometriden geçiyor; seçilen ayarda kaydırılmış H kabulü <%5, doğru H reddi <%10.
+
+### Faz A — Model gerektirmeyen düzeltmeler
+```bash
+python -m pytest tests -v
+python scripts/01b_calibrate_homography.py --data data/roboflow/field-v12 --noise    # Faz K ölçümleri + gürültü çalışması
+```
+- **Homography doğrulaması** (`fai/homography.py`): top-hat çizgi maskesi frame başına bir kez hesaplanır; H'nin skoru ve ±2/4/7 m probe'ları aynı maskeden okunur. Kabul = geometri ∧ marj ≥ 0.12; skor eşiği varsayılan olarak yok. Kanıt yoksa (görüntüye <30 örnek düşüyorsa) red. Taşınan H her frame'de aynı kuralla doğrulanır; geçemezse bırakılır. RANSAC/rmse/tolerans/çekirdek frame genişliğiyle ölçeklenir. 1080p'de `HomographyTracker.update` toplam ~8–9 ms/frame (maske ~7 ms, skor + 12 probe ~1 ms; medyan, laptop CPU).
+- **Gürültü çalışması** ([docs/calibration/field-v12/noise.md](docs/calibration/field-v12/noise.md)): 640 girişte σ=1 / 2 px keypoint gürültüsünde Faz K kuralı (skor ≥ 0.75) doğru H'lerin valid'de %20.7 / %48'ini reddediyordu, kalan redlerin çoğu skor eşiğinden geliyordu. Skor eşiği kaldırılınca %14.7 / %37.3; kaydırılmış H kabulü bütün hücrelerde %0 kaldı. Toleransı büyütmek yardımcı olmadı; top-hat eşiği 5/7, 10'dan kötü. Kalan gürültü hassasiyeti marjda; Faz 1'de modelin keypoint'leriyle kalibre edilecek.
+- **Sahne kesmesi**: ardışık frame HSV histogramlarının Bhattacharyya mesafesi > `cut_threshold` (0.5) ise tracker ve taşınan H sıfırlanır; ID'ler çakışmasın diye kaydırılır. Eşik gerçek yayında **kalibre edilmedi**: `frames.parquet` → `cut_dist` dağılımıyla Faz 3'te ayarlanacak.
+- **Tracker**: `track_high_conf` = detector conf (0.3), yani datasete giren her tespit track başlatabilir; kayıp track `track_buffer_s` = 2 s (trackers'ın 30 fps ölçeklemesi düzeltildi); ByteTrack'in yeni track'e verdiği ilk frame −1'i postprocess'te geri doldurulur.
+- **Postprocess**: rol ve takım oylaması hakem dahil; hakemin takımı −1, render/viz rolü kullanır. Homography olmayan frame'e `xs/ys` uydurulmaz. Top: fiziksel olarak tutarlı en uzun tespit zinciri (homography yoksa piksel uzayında, `max_ball_speed_wps`; kalibre edilmedi), sadece ≤ `ball_max_gap_s` boşluklar doldurulur.
+- **Dataset**: `meta.json` → `homography_coverage` artık sadece fresh; `homography_carried_frac`, `scene_cuts`, `pipeline_config`, `post_config`, red sayaçları ayrı. `frames.parquet` → her frame için fresh adayın `line_score`, `line_margin`, `reject_reason` değerleri (reddedilenler dahil), taşınan H için `carry_*`, `cut`, `cut_dist`.
+- **CLI**: `PipelineConfig` ve `PostConfig`'in her alanı `06_build_tracking_dataset.py` ve `03_check_keypoints.py`'de `--alan-adi` parametresi (`--min-line-score none`, `--line-probes-m 2 4 7`, …). `03_check_keypoints` artık pipeline'ın kabul zincirini kullanır.
+
+**Bitti:** bütün negatif, kontrol ve Faz A testleri geçiyor; sentetik metrikler kötüleşmedi; Faz K ölçümleri yeni kodla tekrarlandığında hedefler tutuyor.
 
 ### Faz 1 — Roboflow datası + modeller
 ```bash
@@ -84,13 +99,18 @@ python scripts/02_train.py ball --data data/roboflow/ball-v2/data.yaml    # opsi
 python scripts/03_check_keypoints.py --kp runs/pose/weights/best.pt --source klip.mp4
 ```
 - Dataset versiyonları videodaki/roboflow-sports notebook'larındakilere sabit (players v10, field v12, ball v2). Projelerin en son versiyonları farklı (field v18, players v20, ball v4) ve içerikleri doğrulanmadı; istersen `--field-version N` ile başka versiyon seçebilirsin (`0` = en son). Her dataset klasörüne `dataset_meta.json` yazılır: versiyon, split sayıları, preprocessing, augmentation.
-- field v12'de bilinen etiket hatası: `train/42ba34_9_2_png.rf.9bf0f5d5…` görüntüsünde yakın ve uzak taç çizgisi noktaları aynalanmış (Faz K). Pose eğitiminden önce düzeltilmeli ya da çıkarılmalı.
+- field v12'de bilinen etiket hatası: `train/42ba34_9_2_png.rf.9bf0f5d5…` görüntüsünde yakın ve uzak taç çizgisi noktaları aynalanmış (Faz K). Pose eğitiminden önce çıkarılmalı (aşağıdaki plan).
 - Varsayılanlar: det `yolo11m` @1280, pose `yolo11m-pose` @640 (mosaic ve yatay flip kapalı — flip sol/sağ keypoint'leri takas eder). `batch=-1` → AutoBatch VRAM'e göre seçer. 4060'ta OOM olursa `--model yolo11s.pt`.
 - Test klibi için: videodaki klipler Kaggle'daki **DFL – Bundesliga Data Shootout** yarışmasından.
 
+**Faz 1 planı (henüz uygulanmadı):**
+1. Pose eğitiminden önce field train split'inden ~50 görüntü "calib" split'i olarak ayrılır ve eğitime girmez. Çizgi kontrolünün nihai kalibrasyonu (`01b`) modelin kendi keypoint'leriyle sadece valid + test + calib üzerinde yapılır; model, eğitildiği görüntülerde değerlendirilmez.
+2. Aynalanmış etiketli görüntü dataseti değiştirmeden bir exclude listesiyle eğitimden çıkarılır.
+3. `fliplr` açılmadan önce `data.yaml`'daki `flip_idx` `pitch.py` ile programatik doğrulanır: her i için `vertex[flip_idx[i]] == (L − x_i, y_i)`. Beklenen: `[24, 25, 26, 27, 28, 29, 22, 23, 21, 17, 18, 19, 20, 13, 14, 15, 16, 9, 10, 11, 12, 8, 6, 7, 0, 1, 2, 3, 4, 5, 31, 30]`.
+
 **Bitti:**
 - det: player / goalkeeper / referee'de val mAP50 yüksek; ball belirgin düşük çıkar — küçük obje, beklenen durum (ayrı ball modeli bu yüzden var).
-- pose: `outputs/keypoint_check/*.png`'de kırmızı projekte çizgiler gerçek beyaz çizgilerin üstüne oturuyor, frame'deki numaralar alttaki şemayla aynı yerde, başlıkta `-> OK` ve `lines=` değeri belirgin yüksek. **Bu kontrol atlanmamalı:** keypoint sırası datasetle uyuşmazsa pipeline hata vermez, sessizce yanlış koordinat üretir.
+- pose: `outputs/keypoint_check/*.png`'de kırmızı projekte çizgiler gerçek beyaz çizgilerin üstüne oturuyor, frame'deki numaralar alttaki şemayla aynı yerde, başlıkta `-> OK` (skor ve marj yazılı). **Bu kontrol atlanmamalı:** keypoint sırası datasetle uyuşmazsa pipeline hata vermez, sessizce yanlış koordinat üretir.
 
 ### Faz 2 — Kendi eğitim datan (ör. Süper Lig yayını)
 ```bash
@@ -114,9 +134,9 @@ python scripts/06_build_tracking_dataset.py --video mac.mp4 \
     --ball runs/ball/weights/best.pt --ball-slice 640 \
     --start-s 0 --duration-s 120
 ```
-Önce kısa bir aralıkla dene (`--duration-s`). `--min-line-score` (varsayılan 0.15) çizgi desteği eşiği. **Dikkat (Faz K):** bugünkü HSV tabanlı skor gerçek yayın görüntüsünde güvenilir değil; doğru H'lerin bir kısmını reddediyor, kaydırılmışların yarısından fazlasını kabul ediyor. Ayrıca reddedilen frame'lerde `frames.parquet` → `line_score` NaN yazılıyor, yani dağılım tam reddedilenlerde boş kalıyor. İkisi de Faz A'da düzeltilecek; o zamana kadar bu eşiği ayarlamaya çalışma. Takım sınıflandırıcı maçın kendi oyuncu kırpıntılarıyla fit edilir ve `team_classifier.pkl` olarak saklanır.
+Önce kısa bir aralıkla dene (`--duration-s`). Bütün eşikler parametre (`--help`): çizgi kontrolü `--min-line-margin`, `--line-tol-div`, `--line-tophat-thr`, `--min-line-score`; sahne kesmesi `--cut-threshold`; tracker `--track-*`; top `--max-ball-speed*`, `--ball-max-gap-s`. Kullanılan değerler `meta.json` → `pipeline_config` / `post_config`'e yazılır. Ayar yaparken `frames.parquet`'e bak: `reject_reason` hangi kriterin reddettiğini, `line_score` / `line_margin` reddedilenler dahil dağılımı, `cut_dist` kesme eşiğinin nereye konacağını gösterir. Takım sınıflandırıcı maçın kendi oyuncu kırpıntılarıyla fit edilir ve `team_classifier.pkl` olarak saklanır.
 
-**Bitti:** `meta.json`'da `homography_coverage` yüksek (replay/yakın çekim oranına bağlı), `homography_rejected` sayıları düşük, `render_radar.mp4`'te radar noktaları oyuncularla eşzamanlı hareket ediyor, iki takım renkleri tutarlı.
+**Bitti:** `meta.json`'da `homography_coverage` (sadece doğrulanmış fresh H) yüksek (replay/yakın çekim oranına bağlı), `homography_rejected` sayıları düşük, `scene_cuts` videodaki kesme sayısıyla uyumlu, `render_radar.mp4`'te radar noktaları oyuncularla eşzamanlı hareket ediyor, iki takım renkleri tutarlı.
 
 ### Faz 4 — Render + analiz (datasetten)
 ```bash
@@ -133,20 +153,20 @@ python scripts/08_analyze.py data/matches/mac
 | kolon | anlam |
 |---|---|
 | `frame`, `t` | frame indeksi, saniye |
-| `track_id` | ByteTrack ID (−1: takip edilmeyen / top) |
-| `cls`, `role` | detector sınıfı; track bazında çoğunluk sınıfı (`player`/`goalkeeper`/`referee`/`ball`) |
+| `track_id` | ByteTrack ID (−1: takip edilmeyen / top); sahne kesmesinden sonra yeni ID'ler öncekilerle çakışmaz |
+| `cls`, `role` | detector sınıfı (frame bazında); track bazında çoğunluk sınıfı, hakem dahil (`player`/`goalkeeper`/`referee`/`ball`). Filtrelerde `role` kullan |
 | `conf` | detection güveni |
-| `team_raw`, `team` | frame bazında / track oylamalı takım (0, 1; −1 = hakem/bilinmiyor) |
+| `team_raw`, `team` | frame bazında / track oylamalı takım (0, 1; −1 = hakem/bilinmiyor; `role == referee` ise her zaman −1) |
 | `x1,y1,x2,y2`, `u,v` | bbox ve zemin temas noktası (piksel) |
-| `x,y` / `xs,ys` | saha koordinatı (m) / yumuşatılmış. x: sol kale çizgisinden, y: uzak taç çizgisinden |
+| `x,y` / `xs,ys` | saha koordinatı (m) / yumuşatılmış (homography olmayan frame'de ikisi de NaN). x: sol kale çizgisinden, y: uzak taç çizgisinden |
 | `speed_mps` | yumuşatılmış hız (m/s) |
 | `on_pitch` | saha sınırı (+3 m) içinde mi |
 | `h_src` | homography kaynağı: `fresh` / `carried` / `none` / `interp` |
-| `outlier`, `interp` | top: imkansız sıçrama / interpolasyonla eklenmiş satır |
+| `outlier`, `interp` | top: fiziksel olarak tutarlı en uzun tespit zincirinin dışında / interpolasyonla eklenmiş satır (sadece ≤1 s boşluklar) |
 
-**frames.parquet** — frame başına `h_src`, `n_kp`, `n_inliers`, `rmse_px`, `line_score` ve `h0..h8` (görüntü→saha homography'si). Piksel koordinatlı her yeni bilgiyi (ör. sonradan eklediğin forma numarası tespiti) aynı matrisle sahaya taşıyabilirsin.
+**frames.parquet** — frame başına: `h_src`, `n_kp`; fresh fit adayının `reject_reason` (`''` kabul, `few_kp` / `fit` / `rmse` / `geometry` / `score` / `margin`), `line_score`, `line_margin`, `n_inliers`, `rmse_px` (aday reddedilse de yazılır); taşınan H'nin bu frame'deki `carry_score`, `carry_margin`, `carry_reason`; `cut`, `cut_dist` (sahne kesmesi); `h0..h8` (kullanılan görüntü→saha homography'si). Piksel koordinatlı her yeni bilgiyi (ör. sonradan eklediğin forma numarası tespiti) aynı matrisle sahaya taşıyabilirsin.
 
-**meta.json** — video bilgisi, saha ölçüleri, model yolları, kolon açıklamaları.
+**meta.json** — video bilgisi, saha ölçüleri, model yolları, `homography_coverage` (fresh), `homography_carried_frac`, `homography_rejected`, `scene_cuts`, kullanılan `pipeline_config` / `post_config`, kolon açıklamaları.
 
 ```python
 from fai.dataio import load_match
@@ -176,15 +196,15 @@ Bilinen kamera ve oyuncu hareketiyle (keypoint gürültüsü σ=1.5 px, bbox σ=
 | takım doğruluğu (oyuncu / kaleci) | %100 / %100 |
 | hız hatası (medyan) | 0.22 m/s |
 | sahte top tespiti | 2/2, boşluklar interpolasyonla dolduruldu |
-| `line_score`: doğru H / az eğitilmiş pose modelinin yanlış H'si | 0.96 / 0.01–0.02 (yanlış olan reddedildi) |
+| fresh homography / taşınan (150 frame'in 8'inde keypoint bilerek yok) | %94.7 / %5.3 |
 
-Bu sayılar **model-dışı** kısmın doğruluğunu ölçer; gerçek videoda hata bütçesini detector ve keypoint modelinin kalitesi belirler. `line_score` satırı sentetik (düz yeşil üstünde saf beyaz çizgi) görüntüye ait; gerçek yayın görüntüsünde aynı skor doğru ve yanlış H'yi ayıramıyor (Faz K).
+Bu sayılar **model-dışı** kısmın doğruluğunu ölçer; gerçek videoda hata bütçesini detector ve keypoint modelinin kalitesi belirler. Sentetik görüntü (düz yeşil üstünde saf beyaz çizgi) çizgi kontrolü için kolay bir durum; gerçek yayın görüntüsündeki davranış için Faz K / Faz A raporlarına bak. (Faz A'dan önceki HSV skoru burada doğru H için 0.96, yanlış H için 0.01–0.02 veriyordu; gerçek görüntüde ise ikisini ayıramıyordu.)
 
 Entegrasyon: `02_train` (det + pose), `03_check_keypoints`, `04_extract_frames`, `05_autolabel`, `06_build` (ayrı top modeli + slicer dahil), `07_render`, `08_analyze` gerçek ultralytics 8.4 ile CPU'da, sentetik veride küçük modellerle uçtan uca çalıştırıldı. SigLIP backend'i Hugging Face erişimi olmadığı için rastgele ağırlıklı küçük bir modelle test edildi (kod yolu + save/load); gerçek ağırlıklar ilk çalıştırmada indirilir.
 
 ## Klasör yapısı
 ```
-fai/            pitch, homography, models, teams, pipeline, postprocess, build, render, analysis, viz, dataio
+fai/            pitch, homography, models, teams, pipeline, postprocess, build, render, analysis, viz, dataio, cli
 scripts/        01_download → 01b_calibrate_homography → 02_train → 03_check_keypoints → 04_extract → 05_autolabel → 06_build → 07_render → 08_analyze
-tests/          test_synthetic.py (modelsiz uçtan uca), test_negative.py (bulgu + kontrol testleri), make_synth_yolo.py
+tests/          test_synthetic.py (modelsiz uçtan uca), test_negative.py (bulgu + kontrol testleri), test_faz_a.py, make_synth_yolo.py
 ```

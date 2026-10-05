@@ -7,8 +7,10 @@ Her örnek frame için bir PNG üretir:
     edilmiş saha çizgileri (kırmızı)
   * altta: fai/pitch.py'deki 32 noktanın numaralı şeması
 
-Başlıkta: geo = geometrik akıl kontrolü, lines = projekte çizgilerin gerçek beyaz
-piksellere denk gelme oranı (0-1). Doğru homography'de belirgin yüksek çıkar.
+Başlıkta: pipeline'ın kabul zincirinin sonucu (fai.pipeline.build_htracker; 06_build ile birebir aynı):
+score = projekte çizgilerin görüntüdeki çizgi maskesine düşme oranı, margin = skor eksi ±2/4/7 m kaydırılmış
+H'lerin en iyisi (doğru H yerel tepedir), sonra OK ya da RED:<sebep> (rmse / geometry / score / margin).
+Eşikler PipelineConfig'ten; değiştirmek için --min-line-margin vb. (--help).
 
 Tamamlanma kriteri: kırmızı çizgiler gerçek beyaz çizgilerin üstüne oturuyor ve
 frame'deki numaralar şemadaki numaralarla aynı yerde. Oturmuyorsa:
@@ -23,8 +25,10 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fai.homography import fit_homography, is_plausible, line_support  # noqa: E402
+from fai.cli import add_dataclass_args, dataclass_from_args  # noqa: E402
+from fai.homography import fit_homography  # noqa: E402
 from fai.models import YoloKeypoints  # noqa: E402
+from fai.pipeline import PipelineConfig, build_htracker  # noqa: E402
 from fai.pitch import PitchConfig  # noqa: E402
 from fai.viz import Radar, project_pitch_lines  # noqa: E402
 
@@ -59,15 +63,15 @@ def main():
     ap.add_argument("--kp", required=True, help="pose model ağırlığı")
     ap.add_argument("--source", required=True, help="video ya da görüntü")
     ap.add_argument("--n", type=int, default=6)
-    ap.add_argument("--kp-conf", type=float, default=0.5)
-    ap.add_argument("--min-line-score", type=float, default=0.15)
     ap.add_argument("--length", type=float, default=105.0)
     ap.add_argument("--width", type=float, default=68.0)
     ap.add_argument("--out", default="outputs/keypoint_check")
     ap.add_argument("--device", default=None)
+    add_dataclass_args(ap, PipelineConfig, title="homography eşikleri (PipelineConfig)")
     a = ap.parse_args()
 
     pitch = PitchConfig(length=a.length, width=a.width)
+    cfg = dataclass_from_args(PipelineConfig, a)
     model = YoloKeypoints(a.kp, conf=0.3, device=a.device)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -77,15 +81,18 @@ def main():
         img = frame.copy()
         msg = "keypoint yok"
         if xy is not None:
-            keep = conf >= a.kp_conf
-            res = fit_homography(xy[keep], pitch.vertices[keep]) if keep.sum() >= 4 else None
-            if res is not None:
+            keep = (conf >= cfg.kp_conf) & (xy[:, 0] > 1) & (xy[:, 1] > 1)
+            scale = frame.shape[1] / cfg.ref_width
+            res = fit_homography(xy[keep], pitch.vertices[keep], cfg.ransac_px * scale) if keep.sum() >= 4 else None
+            if res is not None:                       # çizim için aday H; karar pipeline'ın kabul zincirinden
                 img = project_pitch_lines(img, res.H_pitch2img, pitch)
-                ok = is_plausible(res, frame.shape[1], frame.shape[0], pitch.length, pitch.width)
+                ht = build_htracker(pitch, cfg)
+                _, src = ht.update(xy, conf, frame)
+                dg = ht.diag
                 rm = "rmse anlamsız (4 nokta)" if res.n_inliers == 4 else f"rmse={res.reproj_rmse_px:.1f}px"
-                ls = line_support(frame, res, pitch.polylines())
-                verdict = "OK" if ok and ls >= a.min_line_score else "RED"
-                msg = f"kp={keep.sum()} inlier={res.n_inliers} {rm} geo={'ok' if ok else 'X'} lines={ls:.2f} -> {verdict}"
+                verdict = "OK" if src == "fresh" else f"RED:{dg['reject_reason']}"
+                msg = (f"kp={keep.sum()} inlier={res.n_inliers} {rm} score={dg['line_score']:.2f} "
+                       f"margin={dg['line_margin']:.2f} -> {verdict}")
             else:
                 msg = f"kp={keep.sum()} homography kurulamadı"
             for i, ((x, y), c) in enumerate(zip(xy, conf)):

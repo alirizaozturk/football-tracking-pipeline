@@ -36,7 +36,19 @@ COLUMNS = {
     "x,y": "saha koordinatı (m); x: sol kale çizgisinden, y: uzak taç çizgisinden",
     "xs,ys": "yumuşatılmış saha koordinatı (m)", "speed_mps": "yumuşatılmış hız (m/s)",
     "on_pitch": "saha sınırları (+marj) içinde mi", "h_src": "homography kaynağı: fresh | carried | none | interp",
-    "outlier": "top: fiziksel olarak imkansız sıçrama", "interp": "top: interpolasyonla doldurulmuş satır",
+    "outlier": "top: fiziksel olarak tutarlı en uzun tespit zincirinin dışında kalan tespit",
+    "interp": "top: interpolasyonla doldurulmuş satır (sadece <= ball_max_gap_s boşluklar)",
+}
+FRAMES_COLUMNS = {
+    "h_src": "kullanılan homography: fresh | carried | none",
+    "n_kp": "güveni kp_conf üstü keypoint sayısı",
+    "reject_reason": "fresh fit adayının red sebebi: '' (kabul) | few_kp | fit | rmse | geometry | score | margin",
+    "line_score,line_margin": "fresh fit adayının çizgi skoru ve marjı (reddedilse de yazılır; NaN = aday yok / kanıt yok)",
+    "n_inliers,rmse_px": "fresh fit adayının RANSAC inlier sayısı ve rmse'si",
+    "carry_score,carry_margin": "taşınan H'nin bu frame'deki çizgi skoru / marjı",
+    "carry_reason": "taşınan H bırakıldıysa sebebi: score | margin | age",
+    "cut,cut_dist": "sahne kesmesi tespiti ve ardışık frame histogram mesafesi (Bhattacharyya)",
+    "h0..h8": "kullanılan görüntü->saha homography'si (satır satır)",
 }
 
 
@@ -85,28 +97,32 @@ def build_match_dataset(video_path: str | Path, out_dir: str | Path,
     if raw.empty:
         raise RuntimeError("hiç detection yok: model yolu / conf eşiği / video doğru mu?")
     frames_df = pd.DataFrame(frows)
-    df = postprocess(raw, frames_df, fps, pitch, post_cfg)
+    df = postprocess(raw, frames_df, fps, pitch, post_cfg, img_w=info.width)
     p_track = save_table(df, out / "tracking", fmt)
     p_frames = save_table(frames_df, out / "frames", fmt)
 
-    h_ok = (frames_df["h_src"] != "none").mean()
+    h_ok = (frames_df["h_src"] == "fresh").mean()
+    h_carried = (frames_df["h_src"] == "carried").mean()
     meta = {
         "video": str(video_path.resolve()), "fps": fps, "width": info.width, "height": info.height,
         "start_frame": start, "end_frame": end, "frames_processed": len(frames_df),
         "processing_fps": round(len(frames_df) / max(elapsed, 1e-6), 2),
         "pitch": asdict(pitch), "classes": list(CLASSES), "team_method": team_method,
-        "homography_coverage": round(float(h_ok), 4),
+        "homography_coverage": round(float(h_ok), 4),            # sadece fresh (doğrulanmış) H
+        "homography_carried_frac": round(float(h_carried), 4),
         "homography_rejected": dict(pipe.htrack.rejected),
+        "scene_cuts": int(pipe.n_cuts),
         "line_score_median": round(float(frames_df["line_score"].median()), 3)
         if frames_df["line_score"].notna().any() else None,
+        "pipeline_config": asdict(cfg), "post_config": asdict(post_cfg),
         "files": {"tracking": p_track.name, "frames": p_frames.name},
-        "columns": COLUMNS, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "columns": COLUMNS, "frames_columns": FRAMES_COLUMNS, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     if extra_meta:
         meta.update(extra_meta)
     (out / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
     n_tracks = df.loc[df["track_id"] >= 0, "track_id"].nunique()
-    print(f"[ok] {len(df)} satır, {len(frames_df)} frame, {n_tracks} track, "
-          f"homography kapsama %{100 * h_ok:.1f} -> {out}")
+    print(f"[ok] {len(df)} satır, {len(frames_df)} frame, {n_tracks} track, homography fresh %{100 * h_ok:.1f} "
+          f"(+ taşınan %{100 * h_carried:.1f}), kesme {pipe.n_cuts} -> {out}")
     return out

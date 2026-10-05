@@ -7,6 +7,9 @@
 
 Çıktı: data/matches/<video>/{tracking.parquet, frames.parquet, meta.json, team_classifier.pkl}
 Aynı klasöre tekrar çalıştırırsan takım sınıflandırıcı yeniden fit edilmez (silersen edilir).
+
+Bütün eşikler parametre: PipelineConfig ve PostConfig'in her alanı --alan-adi (ör. --min-line-margin 0.1,
+--min-line-score none, --line-probes-m 2 4 7, --cut-threshold none). Liste: --help. Kullanılan değerler meta.json'a yazılır.
 """
 import argparse
 import sys
@@ -16,9 +19,11 @@ import supervision as sv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fai.build import build_match_dataset  # noqa: E402
+from fai.cli import add_dataclass_args, dataclass_from_args  # noqa: E402
 from fai.models import YoloDetector, YoloKeypoints  # noqa: E402
 from fai.pipeline import PipelineConfig  # noqa: E402
 from fai.pitch import PitchConfig  # noqa: E402
+from fai.postprocess import PostConfig  # noqa: E402
 
 
 def main():
@@ -33,14 +38,13 @@ def main():
     ap.add_argument("--start-s", type=float, default=0.0)
     ap.add_argument("--duration-s", type=float, default=None)
     ap.add_argument("--imgsz", type=int, default=1280)
-    ap.add_argument("--det-conf", type=float, default=0.3)
-    ap.add_argument("--kp-conf", type=float, default=0.5)
-    ap.add_argument("--min-line-score", type=float, default=0.15,
-                    help="homography çizgi desteği alt sınırı; frames.parquet'teki line_score dağılımına göre ayarla")
+    ap.add_argument("--det-conf", type=float, default=0.3, help="detector güven eşiği (track_high_conf ile aynı tut)")
     ap.add_argument("--length", type=float, default=105.0)
     ap.add_argument("--width", type=float, default=68.0)
     ap.add_argument("--format", choices=["parquet", "csv"], default="parquet")
     ap.add_argument("--device", default=None)
+    add_dataclass_args(ap, PipelineConfig, title="pipeline eşikleri (PipelineConfig)")
+    add_dataclass_args(ap, PostConfig, title="postprocess eşikleri (PostConfig)")
     a = ap.parse_args()
 
     info = sv.VideoInfo.from_video_path(a.video)
@@ -55,8 +59,8 @@ def main():
 
     build_match_dataset(
         a.video, out, det, kp, team_method=a.team, ball_detector=ball,
-        pitch=PitchConfig(length=a.length, width=a.width), cfg=PipelineConfig(kp_conf=a.kp_conf, min_line_score=a.min_line_score),
-        start=start, end=end, fmt=a.format, device=a.device,
+        pitch=PitchConfig(length=a.length, width=a.width), cfg=dataclass_from_args(PipelineConfig, a),
+        post_cfg=dataclass_from_args(PostConfig, a), start=start, end=end, fmt=a.format, device=a.device,
         extra_meta={"models": {"det": a.det, "kp": a.kp, "ball": a.ball}})
 
 

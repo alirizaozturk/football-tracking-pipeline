@@ -7,11 +7,20 @@ metre cinsinden eşik vermek gerekir ve uzak/yakın saha bölgelerinde anlamı d
 
 Önemli sınır: homography sadece ZEMİN düzlemi için doğrudur. Oyuncunun ayak noktası
 (bbox alt-orta) doğru projekte edilir; havadaki top edilmez.
+
+Doğrulama (Faz K kalibrasyonu, docs/calibration/field-v12):
+  * çizgi maskesi: L kanalında beyaz top-hat (yerel kontrast). Mutlak HSV eşiği gerçek yayında
+    çizgi piksellerinin ~2/3'ünü kaçırıyordu.
+  * skor: saha çizgilerinden 0.5 m aralıklı örnekler H ile projekte edilir, maskeye düşen oran.
+  * marj: skor(H) - max skor(H'nin ±2/4/7 m kaydırılmış "probe"ları). Doğru H yerel bir tepedir;
+    çizgi yönünde kaymış (tutarlı-ama-yanlış) H değildir. Mutlak skor bunu ayıramıyordu.
+  * piksel eşikleri (RANSAC, rmse, tolerans, çekirdek) frame genişliğiyle ölçeklenir.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -90,85 +99,177 @@ def is_plausible(res: HomographyResult, img_w: int, img_h: int,
     return 2.0 <= np.linalg.norm(R - L) <= 150.0
 
 
-def line_support(frame: np.ndarray, res: HomographyResult, polylines, step_m: float = 0.5,
-                 tol_px: int = 2) -> float:
-    """Görüntü kanıtı: saha çizgilerini homography ile frame'e projekte et, projekte noktaların
-    ne kadarının gerçekten beyaz çizgi pikseline denk geldiğini ölç (0-1).
+# ------------------------------------------------------------------ çizgi kanıtı
+@dataclass(frozen=True)
+class LineCheck:
+    """Çizgi doğrulaması parametreleri. Değerler Faz K (field v12, GT keypoint) kalibrasyonundan; yapı (skor eşiği
+    yok, sadece marj) Faz A gürültü çalışmasından: skor eşiği keypoint gürültüsünde doğru H'leri reddediyor, FAR'a
+    katkısı yok. Modelin gerçek keypoint'leriyle Faz 1'de yeniden kalibre edilecek (geçici değerler)."""
+    tophat_thr: float = 10.0                       # L kanalında top-hat yanıtı eşiği (0-255)
+    kernel_div: float = 128.0                      # top-hat çekirdeği = W / kernel_div px (tek sayıya yuvarlanır)
+    tol_div: float = 640.0                         # örnek konum toleransı = W / tol_div px
+    min_score: Optional[float] = None              # None = skor eşiği yok (geometri + marj); sayı verilirse ek alt sınır
+    min_margin: float = 0.12
+    probes_m: Tuple[float, ...] = (2.0, 4.0, 7.0)  # x ve y yönünde ±
+    step_m: float = 0.5                            # saha çizgisi örnek aralığı
+    min_samples: int = 30                          # görüntüye düşen örnek bundan azsa skor NaN (kanıt yok -> red)
 
-    Geometrik akıl kontrolü, modelin 'var olmayan bir orta yuvarlak' bulması gibi tutarlı
-    ama yanlış keypoint setlerini yakalayamaz; bu skor yakalar. Doğru H'de oyuncular çizgileri
-    kısmen örttüğü için 1 olmaz; yanlış H'de ~0'a yakındır."""
-    h, w = frame.shape[:2]
+
+def pitch_line_samples(polylines: Sequence[np.ndarray], step_m: float = 0.5) -> np.ndarray:
     seg = []
     for pl in polylines:
         for a, b in zip(pl[:-1], pl[1:]):
             k = max(2, int(np.hypot(*(b - a)) / step_m))
             seg.append(np.linspace(a, b, k, endpoint=False))
-    uv = pitch_to_image(res, np.concatenate(seg))
-    ok = np.isfinite(uv).all(1) & (uv[:, 0] >= tol_px) & (uv[:, 0] < w - tol_px) & \
-        (uv[:, 1] >= tol_px) & (uv[:, 1] < h - tol_px)
-    if ok.sum() < 30:
-        return float("nan")
-    uv = np.round(uv[ok]).astype(int)
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    white = ((hsv[..., 2] >= 160) & (hsv[..., 1] <= 70)).astype(np.uint8)
-    white = cv2.dilate(white, np.ones((2 * tol_px + 1, 2 * tol_px + 1), np.uint8))
-    return float(white[uv[:, 1], uv[:, 0]].mean())
+    return np.concatenate(seg)
+
+
+def probe_offsets(probes_m: Sequence[float]) -> np.ndarray:
+    """(P,2): önce (0,0), sonra ±x ve ±y probe kaymaları."""
+    offs = [(0.0, 0.0)]
+    for m in probes_m:
+        offs += [(m, 0.0), (-m, 0.0), (0.0, m), (0.0, -m)]
+    return np.asarray(offs, float)
+
+
+def line_mask(frame: np.ndarray, check: LineCheck) -> Tuple[np.ndarray, int]:
+    """Frame başına BİR kez: genişletilmiş (dilate) çizgi maskesi ve piksel toleransı."""
+    w = frame.shape[1]
+    L = cv2.extractChannel(cv2.cvtColor(frame, cv2.COLOR_BGR2LAB), 0)    # bitişik kopya (dilim görünümü yavaş)
+    k = max(3, int(round(w / check.kernel_div)) | 1)
+    th = cv2.morphologyEx(L, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    tol = max(1, int(round(w / check.tol_div)))
+    # uint8 için th >= thr  <=>  th > ceil(thr) - 1
+    _, m = cv2.threshold(th, math.ceil(check.tophat_thr) - 1, 1, cv2.THRESH_BINARY)
+    return cv2.dilate(m, np.ones((2 * tol + 1, 2 * tol + 1), np.uint8)), tol
+
+
+def line_evidence(mask: np.ndarray, tol: int, H_pitch2img: np.ndarray, samples: np.ndarray,
+                  offsets: np.ndarray, min_samples: int = 30) -> Tuple[float, float]:
+    """-> (skor, marj). offsets[0] = (0,0) H'nin kendisi, kalanlar probe'lar. Tüm probe'lar tek
+    perspectiveTransform çağrısında projekte edilir. Saha noktası p'yi p - d'nin görüntü yerine koyan
+    H, H'nin d kadar kaymış halidir (görüntü->saha koordinatları +d kayar)."""
+    h, w = mask.shape
+    P, N = len(offsets), len(samples)
+    pts = (samples[None, :, :] - offsets[:, None, :]).reshape(-1, 1, 2)
+    uv = cv2.perspectiveTransform(pts, H_pitch2img).reshape(P, N, 2)
+    ok = np.isfinite(uv).all(-1) & (uv[..., 0] >= tol) & (uv[..., 0] < w - tol) & \
+        (uv[..., 1] >= tol) & (uv[..., 1] < h - tol)
+    scores = np.full(P, np.nan)
+    for i in range(P):
+        if ok[i].sum() >= min_samples:
+            q = np.round(uv[i][ok[i]]).astype(int)
+            scores[i] = mask[q[:, 1], q[:, 0]].mean()
+    s = float(scores[0])
+    probes = scores[1:][np.isfinite(scores[1:])]
+    margin = s - float(probes.max()) if (np.isfinite(s) and len(probes)) else float("nan")
+    return s, margin
+
+
+def judge_lines(score: float, margin: float, check: LineCheck) -> str:
+    """'' = kabul; aksi halde red sebebi: 'score' (NaN dahil: doğrulanacak çizgi yok) ya da 'margin'."""
+    if not np.isfinite(score) or (check.min_score is not None and score < check.min_score):
+        return "score"
+    if not np.isfinite(margin) or margin < check.min_margin:
+        return "margin"
+    return ""
 
 
 class HomographyTracker:
     """Frame'ler arası homography yönetimi.
 
-    Kabul zinciri (fresh fit için): >=4 güvenli keypoint -> RANSAC fit -> rmse eşiği ->
-    geometrik akıl kontrolü -> görüntüde çizgi desteği (line_score >= min_line_score).
-    Bir frame'de geçerli fit yoksa son geçerli homography `max_carry` frame taşınır.
-    Kaynak ('fresh' / 'carried' / 'none') ve line_score dataset'e yazılır.
+    Kabul zinciri (fresh fit için): >=4 güvenli keypoint -> RANSAC fit -> rmse eşiği -> geometrik akıl
+    kontrolü -> çizgi kanıtı (skor + marj). Bir frame'de geçerli fit yoksa son geçerli homography en fazla
+    `max_carry` frame taşınır; taşınan H de her frame'de aynı çizgi kuralıyla doğrulanır, geçemezse
+    (ör. sahne kesmesi) bırakılır. RANSAC ve rmse eşikleri `ref_width` genişliğindeki bir frame içindir,
+    gerçek genişlikle ölçeklenir. Frame başına teşhis bilgisi `self.diag`'da (frames.parquet'e yazılır).
     """
+
+    REASONS = ("few_kp", "fit", "rmse", "geometry", "score", "margin")
 
     def __init__(self, vertices: np.ndarray, kp_conf: float = 0.5, ransac_px: float = 8.0,
                  max_carry: int = 12, max_rmse_px: float = 15.0,
-                 pitch_size: tuple = (105.0, 68.0), polylines=None, min_line_score: float = 0.15):
+                 pitch_size: tuple = (105.0, 68.0), polylines=None, line_check: Optional[LineCheck] = LineCheck(),
+                 ref_width: float = 1280.0):
         self.vertices = np.asarray(vertices, np.float64)
         self.kp_conf = kp_conf
         self.ransac_px = ransac_px
         self.max_carry = max_carry
         self.max_rmse_px = max_rmse_px
         self.pitch_size = pitch_size
-        self.polylines = polylines
-        self.min_line_score = min_line_score
-        self.rejected = {"rmse": 0, "geometry": 0, "lines": 0}
+        self.check = line_check if polylines is not None else None
+        self.ref_width = ref_width
+        if self.check is not None:
+            self._samples = pitch_line_samples(polylines, self.check.step_m)
+            self._offsets = probe_offsets(self.check.probes_m)
+        self.rejected: Dict[str, int] = {r: 0 for r in self.REASONS if r != "few_kp"}
+        self.rejected.update(carry_score=0, carry_margin=0)
+        self.diag: Dict = {}
         self.last_line_score = float("nan")
         self._last: Optional[HomographyResult] = None
         self._age = 0
 
-    def _score(self, frame, res) -> float:
-        if frame is None or self.polylines is None or res is None:
-            return float("nan")
-        return line_support(frame, res, self.polylines)
+    def reset(self) -> None:
+        """Taşınan H'yi bırak (ör. sahne kesmesi)."""
+        self._last, self._age = None, 0
+
+    def _evidence(self, mask_tol, res) -> Tuple[float, float]:
+        mask, tol = mask_tol
+        return line_evidence(mask, tol, res.H_pitch2img, self._samples, self._offsets, self.check.min_samples)
 
     def update(self, kp_xy: Optional[np.ndarray], kp_conf: Optional[np.ndarray],
                frame: Optional[np.ndarray] = None):
-        res, score = None, float("nan")
+        d = dict(reject_reason="few_kp", line_score=np.nan, line_margin=np.nan, n_inliers=0, rmse_px=np.nan,
+                 carry_score=np.nan, carry_margin=np.nan, carry_reason="")
+        verify = frame is not None and self.check is not None
+        mask_tol = None                                   # çizgi maskesi frame başına en fazla bir kez
+        scale = frame.shape[1] / self.ref_width if frame is not None else 1.0
+        res = None
         if kp_xy is not None and kp_conf is not None:
             kp_xy = np.asarray(kp_xy, np.float64).reshape(-1, 2)
             keep = (np.asarray(kp_conf).ravel() >= self.kp_conf) & (kp_xy[:, 0] > 1) & (kp_xy[:, 1] > 1)
             if keep.sum() >= 4:
-                res = fit_homography(kp_xy[keep], self.vertices[keep], self.ransac_px)
-                if res is not None and res.reproj_rmse_px > self.max_rmse_px:
-                    res, self.rejected["rmse"] = None, self.rejected["rmse"] + 1
-                if res is not None and frame is not None and not is_plausible(
-                        res, frame.shape[1], frame.shape[0], *self.pitch_size):
-                    res, self.rejected["geometry"] = None, self.rejected["geometry"] + 1
+                res = fit_homography(kp_xy[keep], self.vertices[keep], self.ransac_px * scale)
+                reason = "fit" if res is None else ""
                 if res is not None:
-                    score = self._score(frame, res)
-                    if np.isfinite(score) and score < self.min_line_score:
-                        res, self.rejected["lines"] = None, self.rejected["lines"] + 1
+                    d.update(n_inliers=res.n_inliers, rmse_px=res.reproj_rmse_px)
+                    if res.reproj_rmse_px > self.max_rmse_px * scale:
+                        reason = "rmse"
+                    elif frame is not None and not is_plausible(res, frame.shape[1], frame.shape[0], *self.pitch_size):
+                        reason = "geometry"
+                    elif verify:
+                        mask_tol = line_mask(frame, self.check)
+                        s, m = self._evidence(mask_tol, res)
+                        d.update(line_score=s, line_margin=m)
+                        reason = judge_lines(s, m, self.check)
+                d["reject_reason"] = reason
+                if reason:
+                    self.rejected[reason] += 1
+                    res = None
+        self.last_line_score = d["line_score"]
         if res is not None:
-            self._last, self._age, self.last_line_score = res, 0, score
+            self._last, self._age = res, 0
+            self.diag = d
             return res, "fresh"
         if self._last is not None and self._age < self.max_carry:
+            if verify:
+                if mask_tol is None:
+                    mask_tol = line_mask(frame, self.check)
+                s, m = self._evidence(mask_tol, self._last)
+                d.update(carry_score=s, carry_margin=m)
+                self.last_line_score = s
+                why = judge_lines(s, m, self.check)
+                if why:                                    # taşınan H bu görüntüyle örtüşmüyor -> bırak
+                    d["carry_reason"] = why
+                    self.rejected[f"carry_{why}"] += 1
+                    self.reset()
+                    self.diag = d
+                    return None, "none"
             self._age += 1
-            self.last_line_score = self._score(frame, self._last)
+            self.diag = d
             return self._last, "carried"
-        self.last_line_score = float("nan")
+        if self._last is not None:
+            d["carry_reason"] = "age"
+            self.reset()
+        self.diag = d
         return None, "none"

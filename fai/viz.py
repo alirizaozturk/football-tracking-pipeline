@@ -120,7 +120,7 @@ class Radar:
 
 # ---------------------------------------------------------------- broadcast view
 def annotate_broadcast(frame: np.ndarray, rows, show_ids: bool = True) -> np.ndarray:
-    """rows: ilgili frame'e ait DataFrame satırları (x1..y2, u, v, cls, team, track_id)."""
+    """rows: ilgili frame'e ait DataFrame satırları (x1..y2, u, v, cls, role, team, track_id)."""
     out = frame.copy()
     for r in rows.itertuples(index=False):
         if r.cls == "ball":
@@ -129,7 +129,7 @@ def annotate_broadcast(frame: np.ndarray, rows, show_ids: bool = True) -> np.nda
             cv2.fillPoly(out, [tri], (0, 215, 255))
             cv2.polylines(out, [tri], True, (0, 0, 0), 1, cv2.LINE_AA)
             continue
-        color = TEAM_COLORS.get(int(r.team), UNKNOWN) if r.cls != "referee" else TEAM_COLORS[-1]
+        color = TEAM_COLORS.get(int(r.team), UNKNOWN) if r.role != "referee" else TEAM_COLORS[-1]
         w = max(8, int((r.x2 - r.x1) / 2))
         cv2.ellipse(out, (int(r.u), int(r.v)), (w, max(3, int(0.35 * w))), 0, -45, 235, color, 2, cv2.LINE_AA)
         if show_ids and r.track_id >= 0:
