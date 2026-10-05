@@ -3,9 +3,12 @@
     export ROBOFLOW_API_KEY=...            # roboflow.com -> Settings -> API Keys (ücretsiz hesap yeter)
     python scripts/01_download_datasets.py --which players field ball
 
-Versiyon verilmezse projenin en son versiyonu indirilir. İndirilen her datasetin
-data.yaml'ı mutlak yollara çevrilir (Roboflow'un '../train/images' göreli yolları
-ultralytics'te klasik 'images not found' hatası verir).
+Varsayılan versiyonlar videodaki/roboflow-sports notebook'larındakilerle aynı (players v10,
+field v12, ball v2); projelerin en son versiyonları farklı (ör. field v18) ve içerikleri
+doğrulanmadı. Başka versiyon için --<dataset>-version N, en son için --<dataset>-version 0.
+Her dataset klasörüne dataset_meta.json yazılır (versiyon, split sayıları, preprocessing,
+augmentation). data.yaml mutlak yollara çevrilir (Roboflow'un '../train/images' göreli
+yolları ultralytics'te klasik 'images not found' hatası verir).
 
 `roboflow` paketi kullanılmıyor, doğrudan Roboflow REST API'si çağrılıyor: paket
 opencv-python-headless ve numpy<2.4 sabitliyor; projenin tek-OpenCV (opencv-python)
@@ -14,6 +17,7 @@ kuralıyla aynı ortama kurulamıyor. Akış paketin kendisiyle aynı:
     GET /{workspace}/{project}/{v}/{format}        -> 202: export hazırlanıyor, 200: export.link
 """
 import argparse
+import json
 import os
 import sys
 import time
@@ -33,6 +37,9 @@ PROJECTS = {
     "field": "football-field-detection-f07vi",       # 32 saha keypoint'i (pose)
     "ball": "football-ball-detection-rejhg",         # sadece top (küçük obje, ayrı model)
 }
+# roboflow/sports examples/soccer/notebooks/train_*_detector.ipynb'deki versiyonlar
+DEFAULT_VERSIONS = {"players": 10, "field": 12, "ball": 2}
+META_KEYS = ("id", "name", "created", "images", "splits", "preprocessing", "augmentation", "classes")
 
 
 def api_get(path: str, key: str):
@@ -46,12 +53,25 @@ def api_get(path: str, key: str):
     return r.status_code, r.json()
 
 
-def latest_version(workspace: str, project: str, key: str) -> int:
+def version_numbers(workspace: str, project: str, key: str) -> list:
     _, info = api_get(f"{workspace}/{project}", key)
-    nums = [int(str(v["id"]).rsplit("/", 1)[-1]) for v in info.get("versions", [])]
+    nums = sorted(int(str(v["id"]).rsplit("/", 1)[-1]) for v in info.get("versions", []))
     if not nums:
         sys.exit(f"{workspace}/{project}: hiç versiyon yok")
-    return max(nums)
+    return nums
+
+
+def write_meta(dest: Path, workspace: str, project: str, version: int, fmt: str, key: str, latest: int) -> Path:
+    _, info = api_get(f"{workspace}/{project}/{version}", key)
+    v = info.get("version", {})
+    meta = {"workspace": workspace, "project": project, "version": version, "format": fmt,
+            "latest_version_at_download": latest,
+            "universe_url": f"https://universe.roboflow.com/{workspace}/{project}/dataset/{version}",
+            "downloaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            **{k: v[k] for k in META_KEYS if k in v}}
+    p = dest / "dataset_meta.json"
+    p.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
 
 
 def export_link(workspace: str, project: str, version: int, fmt: str, key: str, timeout_s: float = 900) -> str:
@@ -88,7 +108,8 @@ def main():
     ap.add_argument("--api-key", default=os.environ.get("ROBOFLOW_API_KEY"))
     ap.add_argument("--workspace", default=WORKSPACE)
     for k in PROJECTS:
-        ap.add_argument(f"--{k}-version", type=int, default=None, help="boşsa en son versiyon")
+        ap.add_argument(f"--{k}-version", type=int, default=DEFAULT_VERSIONS[k],
+                        help=f"varsayılan {DEFAULT_VERSIONS[k]} (videodaki); 0 = en son versiyon")
     ap.add_argument("--format", default="yolov8", help="ultralytics YOLOv8/11 için 'yolov8'")
     ap.add_argument("--overwrite", action="store_true", help="klasör varsa yine de indir")
     a = ap.parse_args()
@@ -97,9 +118,12 @@ def main():
 
     for key in a.which:
         project = PROJECTS[key]
-        vnum = getattr(a, f"{key}_version")
-        if vnum is None:
-            vnum = latest_version(a.workspace, project, a.api_key)
+        nums = version_numbers(a.workspace, project, a.api_key)
+        vnum = getattr(a, f"{key}_version") or nums[-1]
+        if vnum not in nums:
+            sys.exit(f"[{key}] {project}: v{vnum} yok (mevcut: {nums})")
+        if vnum != nums[-1]:
+            print(f"[{key}] not: v{vnum} indiriliyor, projenin en son versiyonu v{nums[-1]}")
         dest = Path(a.out) / f"{key}-v{vnum}"
         if (dest / "data.yaml").exists() and not a.overwrite:
             print(f"[{key}] {dest} zaten var, atlanıyor (--overwrite ile tekrar indir)")
@@ -107,7 +131,8 @@ def main():
         print(f"[{key}] {project} v{vnum} -> {dest}")
         download_zip(export_link(a.workspace, project, vnum, a.format, a.api_key), dest)
         y = fix_roboflow_yaml(dest)
-        print(f"[{key}] data.yaml düzeltildi: {y}")
+        m = write_meta(dest, a.workspace, project, vnum, a.format, a.api_key, nums[-1])
+        print(f"[{key}] data.yaml düzeltildi: {y}; meta: {m}")
 
 
 if __name__ == "__main__":

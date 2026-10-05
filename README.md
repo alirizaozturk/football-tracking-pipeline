@@ -59,15 +59,32 @@ python -m pytest tests -v                      # sentetik test + negatif testler
 `test_negative`: analizde bulunan hataları mantık seviyesinde belgeler. `test_bulguNN_*` testleri düzeltmeler yapılana kadar **FAIL verir** (bulgu numaraları analiz raporundaki tabloya karşılık gelir): #1 x-kaymalı keypoint seti `fresh` kabul ediliyor, #2 kesme sonrası eski H taşınıyor, #6 ilk top tespiti sahteyse sonraki gerçek tespitler atılıyor, #7 uzun top boşluğunun ilk 1 s'si dolduruluyor, #8 hakem sınıf titremesi rol/takımı bozuyor, #9 conf 0.3–0.5 tespitler track almıyor ve 50 fps'te kayıp track 3.3 s tutuluyor. `test_kontrol_*` testleri bugün doğru olan davranışı sabitler, her zaman geçmeli.
 **Bitti:** `pip check` temiz, `test_synthetic` ve `test_kontrol_*` geçiyor, `tests/_out/render_mid.png` radar + Voronoi ile oluşmuş. (`test_bulgu*` Faz A'da geçecek.)
 
+### Faz K — Homography doğrulamasının gerçek görüntüyle kalibrasyonu (eğitim yok)
+```bash
+python scripts/01_download_datasets.py --which field          # field v12
+python scripts/01b_calibrate_homography.py --data data/roboflow/field-v12
+```
+Field datasetinin GT keypoint'lerinden her görüntü için homography fit edilir. Ölçülenler: `is_plausible` geçme oranı (keypoint sırası ve y yönü), doğru H'nin çizgi skoru, aynı H'nin x/y yönünde ±3/5/10 m kaydırılmış hallerinin skoru (tutarlı-ama-yanlış H), HSV maske ile top-hat (yerel kontrast) maskesi, sabit ile çözünürlükle ölçekli tolerans, marj (H'nin ±2/4/7 m kaydırılmış "probe"larına göre yerel tepe olup olmadığı) ve çözünürlük ile keypoint gürültüsü etkisi. Eşikler valid split'te sadece doğru-H dağılımından seçilir; test ve train seçimde kullanılmaz. Çıktı `outputs/calibration/<dataset>/`; field v12 sonucu [docs/calibration/field-v12/report.md](docs/calibration/field-v12/report.md).
+
+field v12 sonucu (özet):
+- Geometri: valid+test 54/54, train 221/222. Kalan tek görüntü dataset etiket hatası (yakın/uzak noktalar aynalanmış). Keypoint sırası ve y=0 = uzak taç çizgisi konvansiyonu doğrulandı.
+- **Bugünkü kontrol gerçek yayında işlemiyor.** HSV maskesi gerçek çizgi piksellerinin sadece ~%33'ünü "beyaz" sayıyor (çizgilerin medyan doygunluğu S≈79 > 70). Sonuç: doğru H'lerin %17–27'si reddediliyor, kaydırılmış H'lerin %50–62'si kabul ediliyor.
+- Önerilen ayar (Faz A'da uygulanacak, henüz kodda değil): top-hat maske (L kanalı, eşik 10, çekirdek W/128), çözünürlükle ölçekli tolerans (W/640 px), kabul = geometri ∧ skor ≥ 0.75 ∧ marj ≥ 0.12. Doğru H reddi valid/test/train %6.7 / %4.2 / %5.0; kaydırılmış H kabulü üçünde de %0.
+- Uyarı: bu eşikler hatasız GT keypoint'leriyle kalibre edildi. 640 girişte σ=1 px keypoint gürültüsünde 1080p'de doğru H reddi ~%13'e, σ=2 px'te ~%57'ye çıkıyor. Faz 1'de eğitilen modelin gerçek keypoint'leriyle yeniden kalibre edilmeli.
+
+**Bitti:** GT görüntülerinin ≥%95'i geometriden geçiyor; seçilen ayarda kaydırılmış H kabulü <%5, doğru H reddi <%10.
+
 ### Faz 1 — Roboflow datası + modeller
 ```bash
 export ROBOFLOW_API_KEY=...                                   # roboflow.com → Settings → API Keys (PowerShell: $env:ROBOFLOW_API_KEY="...")
-python scripts/01_download_datasets.py --which players field ball
-python scripts/02_train.py det  --data data/roboflow/players-v*/data.yaml
-python scripts/02_train.py pose --data data/roboflow/field-v*/data.yaml
-python scripts/02_train.py ball --data data/roboflow/ball-v*/data.yaml   # opsiyonel
+python scripts/01_download_datasets.py --which players field ball   # players v10, field v12, ball v2
+python scripts/02_train.py det  --data data/roboflow/players-v10/data.yaml
+python scripts/02_train.py pose --data data/roboflow/field-v12/data.yaml
+python scripts/02_train.py ball --data data/roboflow/ball-v2/data.yaml    # opsiyonel
 python scripts/03_check_keypoints.py --kp runs/pose/weights/best.pt --source klip.mp4
 ```
+- Dataset versiyonları videodaki/roboflow-sports notebook'larındakilere sabit (players v10, field v12, ball v2). Projelerin en son versiyonları farklı (field v18, players v20, ball v4) ve içerikleri doğrulanmadı; istersen `--field-version N` ile başka versiyon seçebilirsin (`0` = en son). Her dataset klasörüne `dataset_meta.json` yazılır: versiyon, split sayıları, preprocessing, augmentation.
+- field v12'de bilinen etiket hatası: `train/42ba34_9_2_png.rf.9bf0f5d5…` görüntüsünde yakın ve uzak taç çizgisi noktaları aynalanmış (Faz K). Pose eğitiminden önce düzeltilmeli ya da çıkarılmalı.
 - Varsayılanlar: det `yolo11m` @1280, pose `yolo11m-pose` @640 (mosaic ve yatay flip kapalı — flip sol/sağ keypoint'leri takas eder). `batch=-1` → AutoBatch VRAM'e göre seçer. 4060'ta OOM olursa `--model yolo11s.pt`.
 - Test klibi için: videodaki klipler Kaggle'daki **DFL – Bundesliga Data Shootout** yarışmasından.
 
@@ -97,7 +114,7 @@ python scripts/06_build_tracking_dataset.py --video mac.mp4 \
     --ball runs/ball/weights/best.pt --ball-slice 640 \
     --start-s 0 --duration-s 120
 ```
-Önce kısa bir aralıkla dene (`--duration-s`). `--min-line-score` (varsayılan 0.15) çizgi desteği eşiği: kendi footage'ında `frames.parquet` → `line_score` dağılımına bakıp ayarla (soluk/aşınmış çizgili sahalarda düşür). Takım sınıflandırıcı maçın kendi oyuncu kırpıntılarıyla fit edilir ve `team_classifier.pkl` olarak saklanır.
+Önce kısa bir aralıkla dene (`--duration-s`). `--min-line-score` (varsayılan 0.15) çizgi desteği eşiği. **Dikkat (Faz K):** bugünkü HSV tabanlı skor gerçek yayın görüntüsünde güvenilir değil; doğru H'lerin bir kısmını reddediyor, kaydırılmışların yarısından fazlasını kabul ediyor. Ayrıca reddedilen frame'lerde `frames.parquet` → `line_score` NaN yazılıyor, yani dağılım tam reddedilenlerde boş kalıyor. İkisi de Faz A'da düzeltilecek; o zamana kadar bu eşiği ayarlamaya çalışma. Takım sınıflandırıcı maçın kendi oyuncu kırpıntılarıyla fit edilir ve `team_classifier.pkl` olarak saklanır.
 
 **Bitti:** `meta.json`'da `homography_coverage` yüksek (replay/yakın çekim oranına bağlı), `homography_rejected` sayıları düşük, `render_radar.mp4`'te radar noktaları oyuncularla eşzamanlı hareket ediyor, iki takım renkleri tutarlı.
 
@@ -161,13 +178,13 @@ Bilinen kamera ve oyuncu hareketiyle (keypoint gürültüsü σ=1.5 px, bbox σ=
 | sahte top tespiti | 2/2, boşluklar interpolasyonla dolduruldu |
 | `line_score`: doğru H / az eğitilmiş pose modelinin yanlış H'si | 0.96 / 0.01–0.02 (yanlış olan reddedildi) |
 
-Bu sayılar **model-dışı** kısmın doğruluğunu ölçer; gerçek videoda hata bütçesini detector ve keypoint modelinin kalitesi belirler.
+Bu sayılar **model-dışı** kısmın doğruluğunu ölçer; gerçek videoda hata bütçesini detector ve keypoint modelinin kalitesi belirler. `line_score` satırı sentetik (düz yeşil üstünde saf beyaz çizgi) görüntüye ait; gerçek yayın görüntüsünde aynı skor doğru ve yanlış H'yi ayıramıyor (Faz K).
 
 Entegrasyon: `02_train` (det + pose), `03_check_keypoints`, `04_extract_frames`, `05_autolabel`, `06_build` (ayrı top modeli + slicer dahil), `07_render`, `08_analyze` gerçek ultralytics 8.4 ile CPU'da, sentetik veride küçük modellerle uçtan uca çalıştırıldı. SigLIP backend'i Hugging Face erişimi olmadığı için rastgele ağırlıklı küçük bir modelle test edildi (kod yolu + save/load); gerçek ağırlıklar ilk çalıştırmada indirilir.
 
 ## Klasör yapısı
 ```
 fai/            pitch, homography, models, teams, pipeline, postprocess, build, render, analysis, viz, dataio
-scripts/        01_download → 02_train → 03_check_keypoints → 04_extract → 05_autolabel → 06_build → 07_render → 08_analyze
+scripts/        01_download → 01b_calibrate_homography → 02_train → 03_check_keypoints → 04_extract → 05_autolabel → 06_build → 07_render → 08_analyze
 tests/          test_synthetic.py (modelsiz uçtan uca), test_negative.py (bulgu + kontrol testleri), make_synth_yolo.py
 ```
