@@ -1,0 +1,22 @@
+# field-v12 holdout-maçları ['cd987c', 'd82e7a'] (21 kare). seed=0, aday havuzu: <= 20 kareli maçlar (14 maç), exclude hariç. Bu maçların BÜTÜN kareleri pose eğitiminden çıkarılır. Satır: <orijinal split>/<dosya>.
+train/cd987c_1_14_png.rf.046b4d761cafef03a49c32f32732d3c2.jpg
+train/cd987c_2_12_png.rf.3ec20fa50337045a30a0657d5e5b1850.jpg
+train/cd987c_9_7_png.rf.ba5f6f36e19ff3021fd8e6773bd6de53.jpg
+train/cd987c_9_8_png.rf.050e66fc575d2ffea9fa70e0bf9b5f70.jpg
+train/cd987c_9_9_png.rf.ec4760672919aa3c3dbb4dc78bdd17e9.jpg
+train/d82e7a_1_12_png.rf.d00e7a4eb9edfe8f260e3c16660032d1.jpg
+train/d82e7a_1_8_png.rf.b77c963b8218fa1d6078a9dc789dfded.jpg
+train/d82e7a_4_11_png.rf.2d4267d52e1b3f749129b1bf01da53cc.jpg
+train/d82e7a_4_12_png.rf.6b66ec42a881a38a829c26cb823b9e9b.jpg
+train/d82e7a_4_13_png.rf.a79de18e6c36f85298f3aef6e424258c.jpg
+train/d82e7a_4_4_png.rf.3be68335f1d4ebaf50aa79757c4c4e09.jpg
+train/d82e7a_5_13_png.rf.ee6b97162835b263673044dd5febecc4.jpg
+train/d82e7a_5_5_png.rf.14ddee444de174f763866c8ea6af3880.jpg
+train/d82e7a_5_7_png.rf.00802ebe09b4a56cad57d9f356b75233.jpg
+train/d82e7a_5_9_png.rf.4043d7c22e71b5060586ae39542bb46e.jpg
+train/d82e7a_8_14_png.rf.f87e7edd7f7587937943a61935bb25dd.jpg
+train/d82e7a_8_15_png.rf.30b2f1f5732c1332152825d4062528a6.jpg
+train/d82e7a_8_6_png.rf.d5a1d0a76d30449a0a8fdf7b5e0927c7.jpg
+valid/cd987c_1_15_png.rf.3209902d0a58de8dbcde69b69ae7d6f5.jpg
+valid/d82e7a_8_12_png.rf.e5fc455973a35288792289428f10be29.jpg
+test/d82e7a_5_3_png.rf.dcd3d10f1dae365c326661a9224a8ec7.jpg

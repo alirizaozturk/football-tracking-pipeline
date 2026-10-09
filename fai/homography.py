@@ -99,6 +99,26 @@ def is_plausible(res: HomographyResult, img_w: int, img_h: int,
     return 2.0 <= np.linalg.norm(R - L) <= 150.0
 
 
+def grid_error_m(H_img2pitch: np.ndarray, H_pitch2img_ref: np.ndarray, img_w: int, img_h: int,
+                 pitch_len: float = 105.0, pitch_wid: float = 68.0, step: float = 1.0) -> Tuple[float, int]:
+    """İki homography arasındaki mesafe (m): saha üzerindeki `step` aralıklı ızgaranın REFERANS H ile görüntüye düşen
+    noktaları, test H ile sahaya geri projekte edilir; ortalama konum hatası ve kullanılan nokta sayısı.
+    (Faz 1a 'doğru H' tanımı: model H'si vs GT H'si.)"""
+    xs = np.arange(0.0, pitch_len + 1e-9, step)
+    ys = np.arange(0.0, pitch_wid + 1e-9, step)
+    g = np.stack(np.meshgrid(xs, ys), -1).reshape(-1, 2)
+    hom = np.c_[g, np.ones(len(g))] @ H_pitch2img_ref.T
+    with np.errstate(divide="ignore", invalid="ignore"):
+        uv = hom[:, :2] / hom[:, 2:3]
+    w_ok = hom[:, 2] > 0 if np.median(hom[:, 2]) > 0 else hom[:, 2] < 0     # kameranın önündeki noktalar
+    ok = w_ok & np.isfinite(uv).all(1) & (uv[:, 0] >= 0) & (uv[:, 0] < img_w) & (uv[:, 1] >= 0) & (uv[:, 1] < img_h)
+    if not ok.any():
+        return float("nan"), 0
+    q = _apply(H_img2pitch, uv[ok])
+    err = np.hypot(*(q - g[ok]).T)
+    return float(np.nanmean(err)), int(ok.sum())
+
+
 # ------------------------------------------------------------------ çizgi kanıtı
 @dataclass(frozen=True)
 class LineCheck:
@@ -205,6 +225,7 @@ class HomographyTracker:
         self.rejected: Dict[str, int] = {r: 0 for r in self.REASONS if r != "few_kp"}
         self.rejected.update(carry_score=0, carry_margin=0)
         self.diag: Dict = {}
+        self.last_candidate: Optional[HomographyResult] = None    # son frame'in fresh fit adayı (reddedilse de)
         self.last_line_score = float("nan")
         self._last: Optional[HomographyResult] = None
         self._age = 0
@@ -225,11 +246,13 @@ class HomographyTracker:
         mask_tol = None                                   # çizgi maskesi frame başına en fazla bir kez
         scale = frame.shape[1] / self.ref_width if frame is not None else 1.0
         res = None
+        self.last_candidate = None
         if kp_xy is not None and kp_conf is not None:
             kp_xy = np.asarray(kp_xy, np.float64).reshape(-1, 2)
             keep = (np.asarray(kp_conf).ravel() >= self.kp_conf) & (kp_xy[:, 0] > 1) & (kp_xy[:, 1] > 1)
             if keep.sum() >= 4:
                 res = fit_homography(kp_xy[keep], self.vertices[keep], self.ransac_px * scale)
+                self.last_candidate = res
                 reason = "fit" if res is None else ""
                 if res is not None:
                     d.update(n_inliers=res.n_inliers, rmse_px=res.reproj_rmse_px)

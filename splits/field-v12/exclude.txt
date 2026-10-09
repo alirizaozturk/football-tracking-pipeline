@@ -1,0 +1,3 @@
+# field v12'den eğitime ve kalibrasyona girmeyen görüntüler (dataset dosyaları değiştirilmez).
+# Faz K: yakın ve uzak taç çizgisi noktaları aynalanmış etiket (14 yakın taç çizgisinde, 17 uzakta; 15/16, 18/21 takas).
+42ba34_9_2_png.rf.9bf0f5d5ef6202770e2ed8e9016b2c8f.jpg

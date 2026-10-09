@@ -617,6 +617,185 @@ def noise_report(tab, decision, pay, perf, out: Path):
     (out / "noise.md").write_text("\n".join(L) + "\n", encoding="utf-8")
 
 
+# ------------------------------------------------- Faz 1a: model keypoint'leriyle kalibrasyon (ÖN-KAYIT)
+# Bu bölümdeki tanımlar ve seçim kuralı sonuçlara bakmadan önce yazılıp commit'lendi.
+KP_CORRECT_M = 0.5          # model H'si ile GT H'si arasındaki ortalama ızgara mesafesi < bu -> "doğru H"
+KP_WRONG_M = 2.0            # > bu -> "yanlış H"; arası "belirsiz": iki orana da girmez, ayrı raporlanır
+KP_GRID_M = 1.0             # ızgara aralığı; sadece GT H ile görüntüye düşen saha noktaları
+KP_SELECT = ("calib",)      # eşik seçimi: calib-maçları (maç bazında held-out; eğitimde hiç görülmemiş maçlar)
+KP_CONFIRM = ("holdout",)   # son kontrol: holdout-maçları
+KP_REFERENCE = ("valid", "test_same")   # eğitim maçlarının kareleri: aynı-maç referans (iyimser), seçime girmez
+KP_MU_Q = 0.05              # marj eşiği = seçim setindeki doğru-H marjlarının %5 quantile'ı, 0.01'e aşağı yuvarlanır
+KP_TARGET_FAR, KP_TARGET_FRR = 0.05, 0.10
+KP_MIN_NATURAL_WRONG = 10   # doğal (kaydırılmamış) yanlış H sayısı >= bu ise doğal FAR da ayrıca < hedef olmalı
+KP_CONF = 0.5               # keypoint recall / hata için güven eşiği (PipelineConfig.kp_conf ile aynı)
+HARD_REJECT = ("few_kp", "fit", "rmse", "geometry")   # marj eşiğinden bağımsız red sebepleri
+
+
+def kp_class(err: float) -> str:
+    if not np.isfinite(err):
+        return "unknown"
+    return "correct" if err < KP_CORRECT_M else ("wrong" if err > KP_WRONG_M else "ambiguous")
+
+
+def kp_accept(reason: str, score: float, margin: float, mu: float) -> bool:
+    """Kabul zincirinin marj eşiği mu ile yeniden değerlendirilmesi (skor eşiği yok; NaN = red)."""
+    return (reason not in HARD_REJECT) and np.isfinite(score) and np.isfinite(margin) and margin >= mu
+
+
+def kp_model_study(weights, root: Path, out: Path, log, predictor=None,
+                   splits=("calib", "holdout", "valid", "test_same")) -> dict:
+    """Model keypoint'lerinden H -> kütüphanenin kabul zinciri (build_htracker) -> GT H'ye ızgara mesafesiyle doğru /
+    yanlış / belirsiz. Ayrıca her model aday H'sinin ±3/5/10 m x/y kaymaları (keypoint'ler tutarlı kaydırılarak) aynı
+    zincirden geçirilir. predictor(frame, item) -> (xy (32,2), conf (32,)); None ise YOLO pose modeli."""
+    from fai.homography import grid_error_m
+    from fai.pipeline import PipelineConfig, build_htracker
+    if predictor is None:
+        from fai.models import YoloKeypoints
+        yk = YoloKeypoints(str(weights))                     # 06_build ile aynı: conf=0.3, imgsz=640
+
+        def predictor(frame, item):
+            return yk(frame)
+    cfg = PipelineConfig()
+    items = load_items(root, [s for s in splits if (root / s / "images").exists()])
+    log(f"[kp-model] {len(items)} görüntü: " + ", ".join(f"{s}={sum(1 for x in items if x[0] == s)}" for s in splits))
+    rows, kps = [], []
+    for split, ip, k in items:
+        frame = cv2.imread(str(ip))
+        h, w = frame.shape[:2]
+        vis = k[:, 2] > 0
+        gt = fit_homography(k[vis, :2] * [w, h], P.vertices[vis], 8.0)
+        if gt is None or not is_plausible(gt, w, h, P.length, P.width):
+            rows.append(dict(split=split, image=ip.name, kind="gt_invalid"))
+            continue
+        xy, conf = predictor(frame, (split, ip, k))
+        if xy is None:
+            xy, conf = np.zeros((len(P.vertices), 2)), np.zeros(len(P.vertices))
+        xy, conf = np.asarray(xy, float), np.asarray(conf, float)
+        # keypoint istatistikleri (640 ölçeğinde piksel)
+        gt_px = k[:, :2] * [w, h]
+        for i in range(len(P.vertices)):
+            kps.append(dict(split=split, image=ip.name, kp=i + 1, gt_vis=bool(vis[i]), conf=float(conf[i]),
+                            err640=float(np.hypot(*(xy[i] - gt_px[i])) * 640 / w) if vis[i] else np.nan))
+        # doğal aday
+        ht = build_htracker(P, cfg)
+        src = ht.update(xy, conf, frame)[1]
+        dg, cand = dict(ht.diag), ht.last_candidate
+        err, npts = grid_error_m(cand.H_img2pitch, gt.H_pitch2img, w, h, P.length, P.width, KP_GRID_M) if cand else (np.nan, 0)
+        rows.append(dict(split=split, image=ip.name, kind="natural", d=0.0, axis="", has_cand=cand is not None,
+                         reason=dg["reject_reason"], score=dg["line_score"], margin=dg["line_margin"],
+                         accepted=src == "fresh", err_m=err, grid_pts=npts, cls=kp_class(err),
+                         n_kp=int((conf >= cfg.kp_conf).sum())))
+        if cand is None:
+            continue
+        keep = (conf >= cfg.kp_conf) & (xy[:, 0] > 1) & (xy[:, 1] > 1)
+        for d in GRID:
+            kp_s, conf_s = shifted_keypoints(cand, keep, d, w, h)
+            hs = build_htracker(P, cfg)
+            src_s = hs.update(kp_s, conf_s, frame)[1]
+            ds, cs = dict(hs.diag), hs.last_candidate
+            e_s, n_s = grid_error_m(cs.H_img2pitch, gt.H_pitch2img, w, h, P.length, P.width, KP_GRID_M) if cs else (np.nan, 0)
+            rows.append(dict(split=split, image=ip.name, kind="shift", d=max(abs(d[0]), abs(d[1])),
+                             axis="x" if d[0] else "y", has_cand=cs is not None, reason=ds["reject_reason"],
+                             score=ds["line_score"], margin=ds["line_margin"], accepted=src_s == "fresh",
+                             err_m=e_s, grid_pts=n_s, cls=kp_class(e_s), n_kp=int(conf_s.sum())))
+    df, kp = pd.DataFrame(rows), pd.DataFrame(kps)
+    df.to_csv(out / "kp_rows.csv", index=False)
+    kp.to_csv(out / "kp_keypoints.csv", index=False)
+
+    # --- eşik seçimi (sadece KP_SELECT)
+    sel = df[(df.kind == "natural") & df.split.isin(KP_SELECT) & (df.cls == "correct") & ~df.reason.isin(HARD_REJECT)]
+    m = sel.margin[np.isfinite(sel.margin)]
+    mu_star = floor2(float(np.quantile(m, KP_MU_Q))) if len(m) else float("nan")
+
+    def metrics(splits_, mu):
+        g = df[df.split.isin(splits_) & df.kind.isin(["natural", "shift"])]
+        acc = np.array([kp_accept(r, s, mg, mu) for r, s, mg in zip(g.reason, g.score, g.margin)], bool) if len(g) else np.zeros(0, bool)
+        g = g.assign(acc=acc)
+        nat, sh = g[g.kind == "natural"], g[g.kind == "shift"]
+        corr, wrong_n, wrong_s = nat[nat.cls == "correct"], nat[nat.cls == "wrong"], sh[sh.cls == "wrong"]
+        rej = corr[~corr.acc]
+        why = {r: float((rej.reason == r).sum() / max(len(corr), 1)) for r in ("rmse", "geometry", "score", "margin")}
+        # marj eşiğiyle reddedilenler: reject_reason '' (varsayılan mu'da kabul edilmiş) olabilir -> 'margin'
+        why["margin"] += float(((rej.reason == "") ).sum() / max(len(corr), 1))
+        imgs = df[df.split.isin(splits_) & (df.kind == "natural")]
+        return {
+            "n_images": int(len(imgs)), "no_candidate": rate(~imgs.has_cand.astype(bool)),
+            "ambiguous": rate((nat.cls == "ambiguous").to_numpy()), "unknown": int((nat.cls == "unknown").sum()),
+            "FRR": rate(~corr.acc.to_numpy()), "FRR_by_reason": why,
+            "FAR_natural": rate(wrong_n.acc.to_numpy()), "FAR_shift": rate(wrong_s.acc.to_numpy()),
+            "FAR": rate(np.r_[wrong_n.acc.to_numpy(), wrong_s.acc.to_numpy()]),
+            "wrong_rejected_by_reason": {r: int((pd.concat([wrong_n, wrong_s]).query("not acc").reason == r).sum())
+                                         for r in ("rmse", "geometry", "score", "margin", "")},
+            "shift_not_wrong": int((sh.cls != "wrong").sum()),
+        }
+
+    groups = {"seçim (calib)": KP_SELECT, "kontrol (holdout)": KP_CONFIRM, "aynı-maç referans": KP_REFERENCE}
+    res = {"mu_star": mu_star, "n_select_correct_margins": int(len(m)), "groups": {}}
+    for gname, sp in groups.items():
+        for mu_name, mu in (("mu_varsayılan_0.12", 0.12), ("mu_seçilen", mu_star)):
+            res["groups"][f"{gname} | {mu_name}"] = metrics(sp, mu) if np.isfinite(mu) else None
+
+    def passes(r):
+        if r is None:
+            return False
+        ok = r["FAR"]["rate"] < KP_TARGET_FAR and r["FRR"]["rate"] < KP_TARGET_FRR
+        if r["FAR_natural"]["n"] >= KP_MIN_NATURAL_WRONG:
+            ok = ok and r["FAR_natural"]["rate"] < KP_TARGET_FAR
+        return bool(ok)
+
+    res["done"] = {"seçim": passes(res["groups"]["seçim (calib) | mu_seçilen"]),
+                   "kontrol": passes(res["groups"]["kontrol (holdout) | mu_seçilen"])}
+
+    # --- keypoint istatistikleri
+    def kpstats(splits_):
+        g = kp[kp.split.isin(splits_) & kp.gt_vis]
+        hit = g[g.conf >= KP_CONF]
+        med = float(hit.err640.median()) if len(hit) else float("nan")
+        extra = kp[kp.split.isin(splits_) & ~kp.gt_vis & (kp.conf >= KP_CONF)]
+        return {"n_gt_visible": int(len(g)), "recall@0.5": rate((g.conf >= KP_CONF).to_numpy()),
+                "err640_median": med, "err640_p90": float(hit.err640.quantile(.9)) if len(hit) else float("nan"),
+                "sigma640_equiv": med / math.sqrt(2 * math.log(2)) if np.isfinite(med) else float("nan"),
+                "conf_on_gt_invisible": int(len(extra))}
+
+    res["keypoints"] = {g: kpstats(sp) for g, sp in groups.items()}
+    (out / "kp_model.json").write_text(json.dumps(res, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    return res
+
+
+def kp_report(res: dict, weights, out: Path) -> None:
+    L = [f"# Faz 1a — model keypoint'leriyle kalibrasyon ({Path(str(weights)).as_posix()})\n",
+         f"Ön-kayıt (kod bu sonuçlardan önce commit'lendi): doğru H = GT H'ye ortalama ızgara mesafesi < {KP_CORRECT_M} m, "
+         f"yanlış H > {KP_WRONG_M} m, arası belirsiz ({KP_GRID_M} m ızgara, sadece görüntüde görünen saha). Eşik seçimi "
+         f"{'/'.join(KP_SELECT)} (maç bazında held-out), son kontrol {'/'.join(KP_CONFIRM)}; {'/'.join(KP_REFERENCE)} "
+         f"aynı-maç referans (seçime girmez). mu* = seçimdeki doğru-H marjlarının %{100 * KP_MU_Q:.0f} quantile'ı "
+         f"(n={res['n_select_correct_margins']}) = **{res['mu_star']}**. FAR: doğal yanlış H + model H'sinin ±3/5/10 m "
+         "kaydırılmış halleri (hepsi aynı ızgara mesafesiyle sınıflanır).\n",
+         "## Keypoint'ler (640 ölçeğinde px)\n",
+         "| set | GT-görünür kp | recall @0.5 | hata medyan | hata p90 | σ eşdeğeri | GT-görünmez ama conf≥0.5 |\n|---|---|---|---|---|---|---|"]
+    for g, s in res["keypoints"].items():
+        L.append(f"| {g} | {s['n_gt_visible']} | {fmt_rate(s['recall@0.5'])} | {s['err640_median']:.2f} | "
+                 f"{s['err640_p90']:.2f} | {s['sigma640_equiv']:.2f} | {s['conf_on_gt_invisible']} |")
+    L.append("\nσ eşdeğeri = medyan radyal hata / √(2 ln 2) (izotrop 2B Gauss varsayımı); Faz A gürültü tablosuyla karşılaştırılabilir.\n")
+    L.append("## Kabul zinciri\n")
+    L.append("| set | mu | doğru H reddi (FRR) | red sebebi (rmse / geo / skor / marj) | yanlış H kabulü (FAR) | doğal FAR | kaydırılmış FAR | belirsiz | aday yok |\n|---|---|---|---|---|---|---|---|---|")
+    for key, r in res["groups"].items():
+        if r is None:
+            L.append(f"| {key} | — | — | — | — | — | — | — | — |")
+            continue
+        g, mu_name = key.split(" | ")
+        why = r["FRR_by_reason"]
+        L.append(f"| {g} | {mu_name.replace('mu_', '')} | {fmt_rate(r['FRR'])} | "
+                 f"%{100 * why['rmse']:.1f} / %{100 * why['geometry']:.1f} / %{100 * why['score']:.1f} / %{100 * why['margin']:.1f} | "
+                 f"{fmt_rate(r['FAR'])} | {fmt_rate(r['FAR_natural'])} | {fmt_rate(r['FAR_shift'])} | "
+                 f"{fmt_rate(r['ambiguous'])} | {fmt_rate(r['no_candidate'])} |")
+    L.append(f"\n**Bitti (ön-kayıt):** seçimde FAR < %{100 * KP_TARGET_FAR:.0f} ve FRR < %{100 * KP_TARGET_FRR:.0f} "
+             f"(doğal yanlış H ≥ {KP_MIN_NATURAL_WRONG} ise doğal FAR da < %{100 * KP_TARGET_FAR:.0f}): "
+             f"**{'TUTTU' if res['done']['seçim'] else 'TUTMADI'}**; kontrolde aynı ölçüt: "
+             f"**{'TUTTU' if res['done']['kontrol'] else 'TUTMADI'}**.")
+    (out / "kp_model.md").write_text("\n".join(L) + "\n", encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -626,12 +805,20 @@ def main():
     ap.add_argument("--no-resolution", action="store_true")
     ap.add_argument("--noise", action="store_true", help="Faz A gürültü çalışması + performans (noise.md)")
     ap.add_argument("--noise-only", action="store_true", help="sadece gürültü çalışması")
+    ap.add_argument("--kp-model", default=None, help="Faz 1a: pose ağırlığı; model keypoint'leriyle kalibrasyon (sadece bu aşama)")
+    ap.add_argument("--kp-data", default="data/derived/field-v12-1a", help="01c'nin türettiği dataset (calib/holdout/valid/test_same)")
     a = ap.parse_args()
     root = Path(a.data)
     out = Path(a.out or f"outputs/calibration/{root.name}")
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     log = lambda m: print(m, flush=True)  # noqa: E731
+
+    if a.kp_model:
+        res = kp_model_study(a.kp_model, Path(a.kp_data), out, log)
+        kp_report(res, a.kp_model, out)
+        log(f"[kp-model] mu*={res['mu_star']} bitti={res['done']} -> {out / 'kp_model.md'} ({time.time() - t0:.0f} s)")
+        return
 
     if a.noise or a.noise_only:
         vt = load_items(root, ["valid", "test"])

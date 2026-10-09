@@ -107,6 +107,27 @@ class PitchConfig:
         lines.append(np.c_[L - ps - r * np.cos(t), cy + r * np.sin(t)])
         return lines
 
+    def mirror_index(self, tol: float = 1e-6) -> List[int]:
+        """Sol-sağ ayna eşlemesi: j = mirror[i] öyle ki vertex[j] == (length - x_i, y_i). YOLO pose `flip_idx`'inin
+        olması gereken değeri (yatay flip augmentation'ı keypoint'leri bununla takas eder)."""
+        v = self.vertices
+        out = []
+        for x, y in v:
+            d = np.hypot(v[:, 0] - (self.length - x), v[:, 1] - y)
+            j = int(np.argmin(d))
+            if d[j] > tol:
+                raise ValueError(f"({x}, {y}) noktasının aynası keypoint listesinde yok")
+            out.append(j)
+        return out
+
+    def check_flip_idx(self, flip_idx) -> List[int]:
+        """data.yaml'daki flip_idx'i saha geometrisine karşı doğrula. Uyuşmayan indekslerin listesi (boş = geçti)."""
+        flip_idx = [int(i) for i in flip_idx]
+        if len(flip_idx) != len(self.vertices):
+            return list(range(len(self.vertices)))
+        mirror = self.mirror_index()
+        return [i for i, (a, b) in enumerate(zip(flip_idx, mirror)) if a != b]
+
     def spots(self) -> np.ndarray:
         """Penaltı noktaları ve santra noktası (3,2)."""
         return np.array([[self.penalty_spot_distance, self.width / 2],

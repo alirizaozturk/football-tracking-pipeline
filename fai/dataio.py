@@ -116,6 +116,9 @@ def combine_yamls(yamls: Iterable[str | Path], out: str | Path) -> Path:
     kpt = cfgs[0][1].get("kpt_shape")
     if kpt:
         merged["kpt_shape"] = kpt
+    flips = [c.get("flip_idx") for _, c in cfgs]
+    if flips[0] is not None and all(f == flips[0] for f in flips if f is not None):
+        merged["flip_idx"] = flips[0]                 # yoksa ultralytics yatay flip'i kapatır
     out = Path(out)
     out.write_text(yaml.safe_dump(merged, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return out
