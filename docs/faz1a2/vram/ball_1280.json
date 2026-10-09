@@ -1,0 +1,32 @@
+{
+  "model": "yolo11m.pt",
+  "data": "data/roboflow/ball-v2/data.yaml",
+  "imgsz": 1280,
+  "results": [
+    {
+      "batch": 2,
+      "peak_reserved_gb": 4.18,
+      "vram_gb": 8.0,
+      "s_per_img": 0.0987,
+      "iters": 8,
+      "fits": true
+    },
+    {
+      "batch": 3,
+      "peak_reserved_gb": 6.01,
+      "vram_gb": 8.0,
+      "s_per_img": 0.0957,
+      "iters": 8,
+      "fits": true
+    },
+    {
+      "batch": 4,
+      "peak_reserved_gb": 8.04,
+      "vram_gb": 8.0,
+      "s_per_img": 0.4124,
+      "iters": 8,
+      "fits": false
+    }
+  ],
+  "largest_fitting_batch": 3
+}

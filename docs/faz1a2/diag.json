@@ -1,0 +1,784 @@
+{
+  "D1": [
+    {
+      "kp": 21,
+      "nokta": "sağ ceza sahası",
+      "n": 25,
+      "ort. vektör dx": -14.109517205729171,
+      "dy": -1.3123061542968744,
+      "|sistematik|": 14.170413657383929,
+      "rastgele RMS": 32.358789864632904,
+      "|hata| medyan": 30.338256365424865,
+      "sistematik payı": 0.16091187262381443
+    },
+    {
+      "kp": 17,
+      "nokta": "orta çizgi",
+      "n": 36,
+      "ort. vektör dx": -18.131256143301513,
+      "dy": -3.3347595142505777,
+      "|sistematik|": 18.435375514263157,
+      "rastgele RMS": 32.68001723559506,
+      "|hata| medyan": 24.599817932505594,
+      "sistematik payı": 0.24140632303784396
+    },
+    {
+      "kp": 29,
+      "nokta": "sağ kale çizgisi",
+      "n": 15,
+      "ort. vektör dx": -5.983414843749997,
+      "dy": 4.461172927517362,
+      "|sistematik|": 7.463465487400717,
+      "rastgele RMS": 23.477191710665082,
+      "|hata| medyan": 20.314278803645113,
+      "sistematik payı": 0.09178609855055496
+    },
+    {
+      "kp": 31,
+      "nokta": "orta yuvarlak sol",
+      "n": 33,
+      "ort. vektör dx": -0.43968405071219774,
+      "dy": -0.5699368469854786,
+      "|sistematik|": 0.7198264193556912,
+      "rastgele RMS": 30.000188332492513,
+      "|hata| medyan": 20.114870987074845,
+      "sistematik payı": 0.0005753838188950678
+    },
+    {
+      "kp": 16,
+      "nokta": "orta çizgi",
+      "n": 48,
+      "ort. vektör dx": -4.275276397026913,
+      "dy": 0.9899009565565297,
+      "|sistematik|": 4.388381498316544,
+      "rastgele RMS": 29.425003664424864,
+      "|hata| medyan": 17.438739025729312,
+      "sistematik payı": 0.021758148601976248
+    },
+    {
+      "kp": 14,
+      "nokta": "orta çizgi",
+      "n": 45,
+      "ort. vektör dx": -0.05316149088541992,
+      "dy": -1.3388095061125573,
+      "|sistematik|": 1.3398645594874543,
+      "rastgele RMS": 31.31907985337774,
+      "|hata| medyan": 16.519402439863438,
+      "sistematik payı": 0.0018268785748699044
+    },
+    {
+      "kp": 24,
+      "nokta": "sağ kale alanı",
+      "n": 23,
+      "ort. vektör dx": -6.941950311367761,
+      "dy": -1.8217768016870455,
+      "|sistematik|": 7.177015036954015,
+      "rastgele RMS": 27.330968341005633,
+      "|hata| medyan": 16.398717320624904,
+      "sistematik payı": 0.06450858009763573
+    },
+    {
+      "kp": 20,
+      "nokta": "sağ ceza sahası",
+      "n": 28,
+      "ort. vektör dx": -7.421660257393976,
+      "dy": 0.3294979963030143,
+      "|sistematik|": 7.428970985658035,
+      "rastgele RMS": 19.33938896569958,
+      "|hata| medyan": 16.16627682502787,
+      "sistematik payı": 0.12858668993702602
+    },
+    {
+      "kp": 15,
+      "nokta": "orta çizgi",
+      "n": 47,
+      "ort. vektör dx": -1.3534663717932756,
+      "dy": 0.2840328325853266,
+      "|sistematik|": 1.3829482526695267,
+      "rastgele RMS": 30.20860624655062,
+      "|hata| medyan": 15.712340981406305,
+      "sistematik payı": 0.0020914199178683306
+    },
+    {
+      "kp": 28,
+      "nokta": "sağ kale çizgisi",
+      "n": 19,
+      "ort. vektör dx": -7.429928484786186,
+      "dy": 0.765134990063047,
+      "|sistematik|": 7.469221434798672,
+      "rastgele RMS": 32.56952901016804,
+      "|hata| medyan": 15.436996721282153,
+      "sistematik payı": 0.0499651559471123
+    },
+    {
+      "kp": 22,
+      "nokta": "sağ penaltı",
+      "n": 28,
+      "ort. vektör dx": -5.052247287713904,
+      "dy": 0.6434465529668906,
+      "|sistematik|": 5.093056658111852,
+      "rastgele RMS": 15.74513510569972,
+      "|hata| medyan": 11.970573910894897,
+      "sistematik payı": 0.09472107968623056
+    },
+    {
+      "kp": 10,
+      "nokta": "sol ceza sahası",
+      "n": 23,
+      "ort. vektör dx": -5.780898626443616,
+      "dy": -0.4253452374886785,
+      "|sistematik|": 5.796525467922312,
+      "rastgele RMS": 18.760685462574816,
+      "|hata| medyan": 11.883763457837816,
+      "sistematik payı": 0.08714452680542911
+    },
+    {
+      "kp": 32,
+      "nokta": "orta yuvarlak sağ",
+      "n": 44,
+      "ort. vektör dx": -3.0010485708525665,
+      "dy": 1.35650261785334,
+      "|sistematik|": 3.2933860807471684,
+      "rastgele RMS": 25.819875899428087,
+      "|hata| medyan": 11.136008213242945,
+      "sistematik payı": 0.016009141889641997
+    },
+    {
+      "kp": 11,
+      "nokta": "sol ceza sahası",
+      "n": 20,
+      "ort. vektör dx": -4.598760601399744,
+      "dy": -0.4339757006835905,
+      "|sistematik|": 4.619191918265612,
+      "rastgele RMS": 9.266515627056265,
+      "|hata| medyan": 10.29323891629565,
+      "sistematik payı": 0.19902882372724018
+    },
+    {
+      "kp": 1,
+      "nokta": "sol kale çizgisi",
+      "n": 18,
+      "ort. vektör dx": -7.265567937102143,
+      "dy": 0.32169803466796626,
+      "|sistematik|": 7.2726863725968505,
+      "rastgele RMS": 6.9070082327826485,
+      "|hata| medyan": 9.171535003426943,
+      "sistematik payı": 0.5257717187714013
+    },
+    {
+      "kp": 27,
+      "nokta": "sağ kale çizgisi",
+      "n": 27,
+      "ort. vektör dx": -5.711997229456021,
+      "dy": -0.276230342459974,
+      "|sistematik|": 5.718672534024728,
+      "rastgele RMS": 17.755750802853075,
+      "|hata| medyan": 9.154839505276371,
+      "sistematik payı": 0.0939828857373844
+    },
+    {
+      "kp": 5,
+      "nokta": "sol kale çizgisi",
+      "n": 7,
+      "ort. vektör dx": 0.7435381091889877,
+      "dy": 4.177921170479909,
+      "|sistematik|": 4.243568572152516,
+      "rastgele RMS": 9.011342057092861,
+      "|hata| medyan": 9.050554981352496,
+      "sistematik payı": 0.1815087409179309
+    },
+    {
+      "kp": 2,
+      "nokta": "sol kale çizgisi",
+      "n": 18,
+      "ort. vektör dx": -5.2108238697193245,
+      "dy": 0.9257622061270244,
+      "|sistematik|": 5.292421096580454,
+      "rastgele RMS": 8.16056610867412,
+      "|hata| medyan": 8.362793023085931,
+      "sistematik payı": 0.2960715739426209
+    },
+    {
+      "kp": 23,
+      "nokta": "sağ kale alanı",
+      "n": 28,
+      "ort. vektör dx": -3.0109721168154726,
+      "dy": -0.26959441179547966,
+      "|sistematik|": 3.023017405691141,
+      "rastgele RMS": 13.419948199656114,
+      "|hata| medyan": 8.125775865691452,
+      "sistematik payı": 0.04829286191381968
+    },
+    {
+      "kp": 19,
+      "nokta": "sağ ceza sahası",
+      "n": 33,
+      "ort. vektör dx": -2.7599938101720345,
+      "dy": 0.616146394610166,
+      "|sistematik|": 2.827932497740894,
+      "rastgele RMS": 14.235213880871646,
+      "|hata| medyan": 6.832405234362239,
+      "sistematik payı": 0.03796647615409656
+    },
+    {
+      "kp": 26,
+      "nokta": "sağ kale çizgisi",
+      "n": 28,
+      "ort. vektör dx": -1.369866136532736,
+      "dy": -1.6588219889322915,
+      "|sistematik|": 2.1513306633301186,
+      "rastgele RMS": 10.30969367547789,
+      "|hata| medyan": 6.742218550458208,
+      "sistematik payı": 0.04172653057362083
+    },
+    {
+      "kp": 13,
+      "nokta": "sol ceza sahası",
+      "n": 11,
+      "ort. vektör dx": 5.837805341500948,
+      "dy": -0.24502753166429644,
+      "|sistematik|": 5.842945292960605,
+      "rastgele RMS": 5.403488566034154,
+      "|hata| medyan": 6.130515569556798,
+      "sistematik payı": 0.5390156347617258
+    },
+    {
+      "kp": 4,
+      "nokta": "sol kale çizgisi",
+      "n": 10,
+      "ort. vektör dx": 6.596946451822919,
+      "dy": 0.9846397021484374,
+      "|sistematik|": 6.670023825389679,
+      "rastgele RMS": 10.372332370294698,
+      "|hata| medyan": 5.7486989543099725,
+      "sistematik payı": 0.29254884163239214
+    },
+    {
+      "kp": 18,
+      "nokta": "sağ ceza sahası",
+      "n": 35,
+      "ort. vektör dx": 1.5247505891927078,
+      "dy": 0.6748873453776045,
+      "|sistematik|": 1.6674343429935523,
+      "rastgele RMS": 17.99838868923124,
+      "|hata| medyan": 5.62430707398089,
+      "sistematik payı": 0.008509786476010974
+    },
+    {
+      "kp": 12,
+      "nokta": "sol ceza sahası",
+      "n": 18,
+      "ort. vektör dx": -2.1683702247902192,
+      "dy": 1.8514015896267375,
+      "|sistematik|": 2.8512308355917444,
+      "rastgele RMS": 7.597593527395755,
+      "|hata| medyan": 5.469401465942379,
+      "sistematik payı": 0.12344956351871549
+    },
+    {
+      "kp": 3,
+      "nokta": "sol kale çizgisi",
+      "n": 14,
+      "ort. vektör dx": -1.5350433146158868,
+      "dy": 0.8429001418340755,
+      "|sistematik|": 1.7512391689460445,
+      "rastgele RMS": 7.07856700829664,
+      "|hata| medyan": 4.844848334009622,
+      "sistematik payı": 0.0576766693339889
+    },
+    {
+      "kp": 7,
+      "nokta": "sol kale alanı",
+      "n": 18,
+      "ort. vektör dx": -3.3489699182581014,
+      "dy": 1.0876188530815953,
+      "|sistematik|": 3.5211524083709014,
+      "rastgele RMS": 7.904062831457951,
+      "|hata| medyan": 4.635051401747505,
+      "sistematik payı": 0.16559454096216383
+    },
+    {
+      "kp": 9,
+      "nokta": "sol penaltı",
+      "n": 18,
+      "ort. vektör dx": -2.9235240397135396,
+      "dy": 1.8911577329282412,
+      "|sistematik|": 3.481877421966095,
+      "rastgele RMS": 7.55157541736679,
+      "|hata| medyan": 4.585231222674318,
+      "sistematik payı": 0.1753219402287186
+    },
+    {
+      "kp": 25,
+      "nokta": "sağ kale çizgisi",
+      "n": 32,
+      "ort. vektör dx": 2.35589491373698,
+      "dy": -1.4441589904785164,
+      "|sistematik|": 2.763301654606623,
+      "rastgele RMS": 10.224277929160246,
+      "|hata| medyan": 4.293579533612956,
+      "sistematik payı": 0.06807275240207623
+    },
+    {
+      "kp": 8,
+      "nokta": "sol kale alanı",
+      "n": 11,
+      "ort. vektör dx": 2.6525773585463983,
+      "dy": 0.21722877752130662,
+      "|sistematik|": 2.66145730472168,
+      "rastgele RMS": 7.126604426320718,
+      "|hata| medyan": 4.107324989618142,
+      "sistematik payı": 0.1223972539192938
+    }
+  ],
+  "D1_31_32": {
+    "rows": [
+      {
+        "kp": 31,
+        "n": 223,
+        "etiket→gerçek nokta medyan": 3.129501711458582,
+        "etiket→elips ucu medyan": 4.549914463890824,
+        "gerçek↔uç mesafe medyan": 2.5611226884402702,
+        "uca daha yakın": "%15.7",
+        "ort. ofset dx": 0.6291458547340656,
+        "dy": -0.012129042010794526
+      },
+      {
+        "kp": 32,
+        "n": 221,
+        "etiket→gerçek nokta medyan": 3.146955809499003,
+        "etiket→elips ucu medyan": 6.478724073980655,
+        "gerçek↔uç mesafe medyan": 3.894880596713785,
+        "uca daha yakın": "%7.2",
+        "ort. ofset dx": -2.3273335786413996,
+        "dy": -0.5373221268806659
+      }
+    ],
+    "other_kp_residual_median": 0.6832910687442755,
+    "other_kp_residual_p90": 8.104193185944393
+  },
+  "D2": {
+    "k_star": 0,
+    "excluded": [],
+    "k_sweep_calib": [
+      {
+        "k": 0,
+        "dışlanan": [],
+        "calib H hatası medyan (m)": 3.9598549713650715
+      },
+      {
+        "k": 1,
+        "dışlanan": [
+          21
+        ],
+        "calib H hatası medyan (m)": 3.9598549713650715
+      },
+      {
+        "k": 2,
+        "dışlanan": [
+          21,
+          17
+        ],
+        "calib H hatası medyan (m)": 4.069191485765022
+      },
+      {
+        "k": 3,
+        "dışlanan": [
+          21,
+          17,
+          29
+        ],
+        "calib H hatası medyan (m)": 4.069191485765022
+      },
+      {
+        "k": 4,
+        "dışlanan": [
+          21,
+          17,
+          29,
+          15
+        ],
+        "calib H hatası medyan (m)": 4.157643446779381
+      },
+      {
+        "k": 5,
+        "dışlanan": [
+          21,
+          17,
+          29,
+          15,
+          16
+        ],
+        "calib H hatası medyan (m)": 4.308524213738632
+      },
+      {
+        "k": 6,
+        "dışlanan": [
+          21,
+          17,
+          29,
+          15,
+          16,
+          31
+        ],
+        "calib H hatası medyan (m)": 5.189137951200184
+      },
+      {
+        "k": 7,
+        "dışlanan": [
+          21,
+          17,
+          29,
+          15,
+          16,
+          31,
+          20
+        ],
+        "calib H hatası medyan (m)": 5.618231975884863
+      },
+      {
+        "k": 8,
+        "dışlanan": [
+          21,
+          17,
+          29,
+          15,
+          16,
+          31,
+          20,
+          14
+        ],
+        "calib H hatası medyan (m)": 4.860284854224008
+      },
+      {
+        "k": 9,
+        "dışlanan": [
+          21,
+          17,
+          29,
+          15,
+          16,
+          31,
+          20,
+          14,
+          24
+        ],
+        "calib H hatası medyan (m)": 5.12961229619827
+      },
+      {
+        "k": 10,
+        "dışlanan": [
+          21,
+          17,
+          29,
+          15,
+          16,
+          31,
+          20,
+          14,
+          24,
+          22
+        ],
+        "calib H hatası medyan (m)": 6.536856753314504
+      }
+    ],
+    "table": [
+      {
+        "cfg": "dışlama yok",
+        "set": "calib",
+        "n": 36,
+        "H hatası medyan (m)": 3.9598549713650715,
+        "p10": 2.7773235167503634,
+        "p90": 5.941893919645533,
+        "doğru": 0,
+        "belirsiz": 2,
+        "yanlış": 33,
+        "H yok": 1,
+        "D5 ızgara medyanı (medyan, m)": 3.722189021203186,
+        "D5 alt 2/3 ortalaması (medyan, m)": 3.813236552065239
+      },
+      {
+        "cfg": "dışlama yok",
+        "set": "holdout",
+        "n": 21,
+        "H hatası medyan (m)": 2.819629063001445,
+        "p10": 1.8273633047037965,
+        "p90": 3.672258428277256,
+        "doğru": 0,
+        "belirsiz": 4,
+        "yanlış": 17,
+        "H yok": 0,
+        "D5 ızgara medyanı (medyan, m)": 2.492240999128348,
+        "D5 alt 2/3 ortalaması (medyan, m)": 2.909213599459174
+      },
+      {
+        "cfg": "dışlama yok",
+        "set": "aynı-maç",
+        "n": 42,
+        "H hatası medyan (m)": 1.5617637985587798,
+        "p10": 1.0386318366512233,
+        "p90": 2.763487001329759,
+        "doğru": 0,
+        "belirsiz": 26,
+        "yanlış": 16,
+        "H yok": 0,
+        "D5 ızgara medyanı (medyan, m)": 1.32918255259293,
+        "D5 alt 2/3 ortalaması (medyan, m)": 1.3800361145563633
+      },
+      {
+        "cfg": "(a) 31-32 hariç",
+        "set": "calib",
+        "n": 36,
+        "H hatası medyan (m)": 4.228181991312562,
+        "p10": 2.785987690838975,
+        "p90": 5.92303053051027,
+        "doğru": 0,
+        "belirsiz": 2,
+        "yanlış": 32,
+        "H yok": 2,
+        "D5 ızgara medyanı (medyan, m)": 3.8842034438378072,
+        "D5 alt 2/3 ortalaması (medyan, m)": 4.298409764411177
+      },
+      {
+        "cfg": "(a) 31-32 hariç",
+        "set": "holdout",
+        "n": 21,
+        "H hatası medyan (m)": 2.8753329430606716,
+        "p10": 1.834659374241601,
+        "p90": 3.8994901099376738,
+        "doğru": 0,
+        "belirsiz": 3,
+        "yanlış": 18,
+        "H yok": 0,
+        "D5 ızgara medyanı (medyan, m)": 2.479984787683367,
+        "D5 alt 2/3 ortalaması (medyan, m)": 2.9478924349806386
+      },
+      {
+        "cfg": "(a) 31-32 hariç",
+        "set": "aynı-maç",
+        "n": 42,
+        "H hatası medyan (m)": 1.6557638017941092,
+        "p10": 1.0660766768742713,
+        "p90": 4.042904017774767,
+        "doğru": 0,
+        "belirsiz": 25,
+        "yanlış": 16,
+        "H yok": 1,
+        "D5 ızgara medyanı (medyan, m)": 1.4549221307650129,
+        "D5 alt 2/3 ortalaması (medyan, m)": 1.5683344997448012
+      },
+      {
+        "cfg": "(b) calib'in en kötü k=0: []",
+        "set": "calib",
+        "n": 36,
+        "H hatası medyan (m)": 3.9598549713650715,
+        "p10": 2.7773235167503634,
+        "p90": 5.941893919645533,
+        "doğru": 0,
+        "belirsiz": 2,
+        "yanlış": 33,
+        "H yok": 1,
+        "D5 ızgara medyanı (medyan, m)": 3.722189021203186,
+        "D5 alt 2/3 ortalaması (medyan, m)": 3.813236552065239
+      },
+      {
+        "cfg": "(b) calib'in en kötü k=0: []",
+        "set": "holdout",
+        "n": 21,
+        "H hatası medyan (m)": 2.819629063001445,
+        "p10": 1.8273633047037965,
+        "p90": 3.672258428277256,
+        "doğru": 0,
+        "belirsiz": 4,
+        "yanlış": 17,
+        "H yok": 0,
+        "D5 ızgara medyanı (medyan, m)": 2.492240999128348,
+        "D5 alt 2/3 ortalaması (medyan, m)": 2.909213599459174
+      },
+      {
+        "cfg": "(b) calib'in en kötü k=0: []",
+        "set": "aynı-maç",
+        "n": 42,
+        "H hatası medyan (m)": 1.5617637985587798,
+        "p10": 1.0386318366512233,
+        "p90": 2.763487001329759,
+        "doğru": 0,
+        "belirsiz": 26,
+        "yanlış": 16,
+        "H yok": 0,
+        "D5 ızgara medyanı (medyan, m)": 1.32918255259293,
+        "D5 alt 2/3 ortalaması (medyan, m)": 1.3800361145563633
+      }
+    ]
+  },
+  "D3": {
+    "keypoints": [
+      {
+        "imgsz": 640,
+        "set": "görülmemiş (calib+holdout)",
+        "recall@0.5": "%90.3",
+        "kp hata medyan": 11.365222581591869,
+        "p90": 37.03056459772463
+      },
+      {
+        "imgsz": 640,
+        "set": "aynı-maç",
+        "recall@0.5": "%87.9",
+        "kp hata medyan": 4.530263124500623,
+        "p90": 11.765135464744066
+      },
+      {
+        "imgsz": 960,
+        "set": "görülmemiş (calib+holdout)",
+        "recall@0.5": "%53.9",
+        "kp hata medyan": 19.110500875592997,
+        "p90": 66.74884338351174
+      },
+      {
+        "imgsz": 960,
+        "set": "aynı-maç",
+        "recall@0.5": "%60.0",
+        "kp hata medyan": 10.91810543881223,
+        "p90": 30.87324509365161
+      },
+      {
+        "imgsz": 1280,
+        "set": "görülmemiş (calib+holdout)",
+        "recall@0.5": "%29.5",
+        "kp hata medyan": 27.93282696463268,
+        "p90": 76.08956841922844
+      },
+      {
+        "imgsz": 1280,
+        "set": "aynı-maç",
+        "recall@0.5": "%37.2",
+        "kp hata medyan": 25.98212144100805,
+        "p90": 70.10054040441531
+      }
+    ],
+    "H": [
+      {
+        "cfg": "imgsz 640",
+        "set": "görülmemiş (calib+holdout)",
+        "n": 57,
+        "H hatası medyan (m)": 3.354288648756845,
+        "p10": 2.0313205728067576,
+        "p90": 5.298238668847436,
+        "doğru": 0,
+        "belirsiz": 6,
+        "yanlış": 50,
+        "H yok": 1,
+        "D5 ızgara medyanı (medyan, m)": 3.092932279933786,
+        "D5 alt 2/3 ortalaması (medyan, m)": 3.3540745444519167
+      },
+      {
+        "cfg": "imgsz 640",
+        "set": "aynı-maç",
+        "n": 42,
+        "H hatası medyan (m)": 1.5617637985587798,
+        "p10": 1.0386318366512233,
+        "p90": 2.763487001329759,
+        "doğru": 0,
+        "belirsiz": 26,
+        "yanlış": 16,
+        "H yok": 0,
+        "D5 ızgara medyanı (medyan, m)": 1.32918255259293,
+        "D5 alt 2/3 ortalaması (medyan, m)": 1.3800361145563633
+      },
+      {
+        "cfg": "imgsz 960",
+        "set": "görülmemiş (calib+holdout)",
+        "n": 57,
+        "H hatası medyan (m)": 6.87113976174622,
+        "p10": 3.9079686958088544,
+        "p90": 20.10773640774663,
+        "doğru": 0,
+        "belirsiz": 1,
+        "yanlış": 46,
+        "H yok": 10,
+        "D5 ızgara medyanı (medyan, m)": 5.882615341704859,
+        "D5 alt 2/3 ortalaması (medyan, m)": 6.823035535016518
+      },
+      {
+        "cfg": "imgsz 960",
+        "set": "aynı-maç",
+        "n": 42,
+        "H hatası medyan (m)": 4.275944429827295,
+        "p10": 3.038261991820445,
+        "p90": 8.58294302500033,
+        "doğru": 0,
+        "belirsiz": 0,
+        "yanlış": 40,
+        "H yok": 2,
+        "D5 ızgara medyanı (medyan, m)": 3.95057123731337,
+        "D5 alt 2/3 ortalaması (medyan, m)": 4.246801606709056
+      },
+      {
+        "cfg": "imgsz 1280",
+        "set": "görülmemiş (calib+holdout)",
+        "n": 57,
+        "H hatası medyan (m)": 10.946671060697183,
+        "p10": 5.459928864227486,
+        "p90": 41.2834944204357,
+        "doğru": 0,
+        "belirsiz": 0,
+        "yanlış": 36,
+        "H yok": 21,
+        "D5 ızgara medyanı (medyan, m)": 8.56224942265351,
+        "D5 alt 2/3 ortalaması (medyan, m)": 8.799914174234306
+      },
+      {
+        "cfg": "imgsz 1280",
+        "set": "aynı-maç",
+        "n": 42,
+        "H hatası medyan (m)": 20.429741041522064,
+        "p10": 5.525684006974462,
+        "p90": 788.7394213032042,
+        "doğru": 0,
+        "belirsiz": 0,
+        "yanlış": 33,
+        "H yok": 9,
+        "D5 ızgara medyanı (medyan, m)": 14.772637128099422,
+        "D5 alt 2/3 ortalaması (medyan, m)": 15.733222963008636
+      }
+    ]
+  },
+  "D4": [
+    {
+      "ölçü": "GT residual, 31/32 hariç keypoint'ler (640 px)",
+      "medyan": 0.7870572571334071,
+      "p90": 8.295754250618455,
+      "n": 3704
+    },
+    {
+      "ölçü": "GT residual, 31/32 (640 px)",
+      "medyan": 1.2934282063551858,
+      "p90": 6.103962760519955,
+      "n": 454
+    },
+    {
+      "ölçü": "bootstrap GT H belirsizliği: ortalama ızgara hatası (m) — görüntü başına medyan",
+      "medyan": 0.5809704731310226,
+      "p90": 1.3773386799716472,
+      "n": 275
+    },
+    {
+      "ölçü": "bootstrap: görüntü başına p90 (m)",
+      "medyan": 2.4558041646168363,
+      "p90": 7.288079598927907,
+      "n": 275
+    },
+    {
+      "ölçü": "bootstrap D5: ızgara medyanı (m)",
+      "medyan": 0.4296875771466132,
+      "p90": 0.9906869266345979,
+      "n": 275
+    },
+    {
+      "ölçü": "bootstrap D5: alt 2/3 ortalaması (m)",
+      "medyan": 0.48505179988269426,
+      "p90": 1.1117404131325657,
+      "n": 275
+    }
+  ]
+}

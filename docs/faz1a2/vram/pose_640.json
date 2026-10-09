@@ -1,0 +1,40 @@
+{
+  "model": "yolo11m-pose.pt",
+  "data": "data/derived/field-v12-1a/data.yaml",
+  "imgsz": 640,
+  "results": [
+    {
+      "batch": 4,
+      "peak_reserved_gb": 2.28,
+      "vram_gb": 8.0,
+      "s_per_img": 0.0583,
+      "iters": 8,
+      "fits": false
+    },
+    {
+      "batch": 6,
+      "peak_reserved_gb": 3.23,
+      "vram_gb": 8.0,
+      "s_per_img": 0.0505,
+      "iters": 8,
+      "fits": false
+    },
+    {
+      "batch": 8,
+      "peak_reserved_gb": 4.35,
+      "vram_gb": 8.0,
+      "s_per_img": 0.03,
+      "iters": 8,
+      "fits": true
+    },
+    {
+      "batch": 16,
+      "peak_reserved_gb": 8.12,
+      "vram_gb": 8.0,
+      "s_per_img": 0.2204,
+      "iters": 8,
+      "fits": false
+    }
+  ],
+  "largest_fitting_batch": 8
+}

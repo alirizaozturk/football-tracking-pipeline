@@ -1,0 +1,40 @@
+{
+  "model": "yolo11m.pt",
+  "data": "data/roboflow/players-v10/data.yaml",
+  "imgsz": 1280,
+  "results": [
+    {
+      "batch": 2,
+      "peak_reserved_gb": 4.2,
+      "vram_gb": 8.0,
+      "s_per_img": 0.1318,
+      "iters": 8,
+      "fits": true
+    },
+    {
+      "batch": 4,
+      "peak_reserved_gb": 8.07,
+      "vram_gb": 8.0,
+      "s_per_img": 0.4746,
+      "iters": 8,
+      "fits": false
+    },
+    {
+      "batch": 6,
+      "peak_reserved_gb": 11.92,
+      "vram_gb": 8.0,
+      "s_per_img": 2.5366,
+      "iters": 8,
+      "fits": false
+    },
+    {
+      "batch": 8,
+      "peak_reserved_gb": 14.04,
+      "vram_gb": 8.0,
+      "s_per_img": 1.2842,
+      "iters": 8,
+      "fits": false
+    }
+  ],
+  "largest_fitting_batch": 2
+}

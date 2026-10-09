@@ -1,0 +1,24 @@
+{
+  "model": "yolo11m-pose.pt",
+  "data": "data/derived/field-v12-1a/data.yaml",
+  "imgsz": 640,
+  "results": [
+    {
+      "batch": 10,
+      "peak_reserved_gb": 5.28,
+      "vram_gb": 8.0,
+      "s_per_img": 0.0399,
+      "iters": 8,
+      "fits": true
+    },
+    {
+      "batch": 12,
+      "peak_reserved_gb": 6.2,
+      "vram_gb": 8.0,
+      "s_per_img": 0.0354,
+      "iters": 8,
+      "fits": true
+    }
+  ],
+  "largest_fitting_batch": 12
+}
