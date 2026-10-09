@@ -1,0 +1,279 @@
+{
+  "mu_star": NaN,
+  "n_select_correct_margins": 0,
+  "groups": {
+    "seçim (calib) | mu_varsayılan_0.12": {
+      "n_images": 36,
+      "no_candidate": {
+        "k": 1,
+        "n": 36,
+        "rate": 0.027777777777777776,
+        "ci95": [
+          0.004920280295569679,
+          0.141700337350308
+        ]
+      },
+      "ambiguous": {
+        "k": 2,
+        "n": 36,
+        "rate": 0.05555555555555555,
+        "ci95": [
+          0.015369663767066846,
+          0.18144974107611211
+        ]
+      },
+      "unknown": 1,
+      "FRR": {
+        "k": 0,
+        "n": 0,
+        "rate": NaN,
+        "ci95": [
+          NaN,
+          NaN
+        ]
+      },
+      "FRR_by_reason": {
+        "rmse": 0.0,
+        "geometry": 0.0,
+        "score": 0.0,
+        "margin": 0.0
+      },
+      "FAR_natural": {
+        "k": 0,
+        "n": 33,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.10427343003561192
+        ]
+      },
+      "FAR_shift": {
+        "k": 0,
+        "n": 418,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.009106735798460844
+        ]
+      },
+      "FAR": {
+        "k": 0,
+        "n": 451,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.008446017250840732
+        ]
+      },
+      "wrong_rejected_by_reason": {
+        "rmse": 0,
+        "geometry": 0,
+        "score": 0,
+        "margin": 451,
+        "": 0
+      },
+      "shift_not_wrong": 2
+    },
+    "seçim (calib) | mu_seçilen": null,
+    "kontrol (holdout) | mu_varsayılan_0.12": {
+      "n_images": 21,
+      "no_candidate": {
+        "k": 0,
+        "n": 21,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.15464382326420195
+        ]
+      },
+      "ambiguous": {
+        "k": 4,
+        "n": 21,
+        "rate": 0.19047619047619047,
+        "ci95": [
+          0.07667440615177301,
+          0.40000986539273287
+        ]
+      },
+      "unknown": 0,
+      "FRR": {
+        "k": 0,
+        "n": 0,
+        "rate": NaN,
+        "ci95": [
+          NaN,
+          NaN
+        ]
+      },
+      "FRR_by_reason": {
+        "rmse": 0.0,
+        "geometry": 0.0,
+        "score": 0.0,
+        "margin": 0.0
+      },
+      "FAR_natural": {
+        "k": 0,
+        "n": 17,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.18432366037156456
+        ]
+      },
+      "FAR_shift": {
+        "k": 0,
+        "n": 252,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.015015540865910781
+        ]
+      },
+      "FAR": {
+        "k": 0,
+        "n": 269,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.014079964345612983
+        ]
+      },
+      "wrong_rejected_by_reason": {
+        "rmse": 0,
+        "geometry": 0,
+        "score": 0,
+        "margin": 269,
+        "": 0
+      },
+      "shift_not_wrong": 0
+    },
+    "kontrol (holdout) | mu_seçilen": null,
+    "aynı-maç referans | mu_varsayılan_0.12": {
+      "n_images": 42,
+      "no_candidate": {
+        "k": 0,
+        "n": 42,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.08380161250916197
+        ]
+      },
+      "ambiguous": {
+        "k": 26,
+        "n": 42,
+        "rate": 0.6190476190476191,
+        "ci95": [
+          0.46813768219996377,
+          0.7500047910121407
+        ]
+      },
+      "unknown": 0,
+      "FRR": {
+        "k": 0,
+        "n": 0,
+        "rate": NaN,
+        "ci95": [
+          NaN,
+          NaN
+        ]
+      },
+      "FRR_by_reason": {
+        "rmse": 0.0,
+        "geometry": 0.0,
+        "score": 0.0,
+        "margin": 0.0
+      },
+      "FAR_natural": {
+        "k": 0,
+        "n": 16,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.19361341827271994
+        ]
+      },
+      "FAR_shift": {
+        "k": 0,
+        "n": 502,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007594472261672428
+        ]
+      },
+      "FAR": {
+        "k": 0,
+        "n": 518,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.00736162084433284
+        ]
+      },
+      "wrong_rejected_by_reason": {
+        "rmse": 0,
+        "geometry": 0,
+        "score": 0,
+        "margin": 518,
+        "": 0
+      },
+      "shift_not_wrong": 2
+    },
+    "aynı-maç referans | mu_seçilen": null
+  },
+  "done": {
+    "seçim": false,
+    "kontrol": false
+  },
+  "keypoints": {
+    "seçim (calib)": {
+      "n_gt_visible": 492,
+      "recall@0.5": {
+        "k": 445,
+        "n": 492,
+        "rate": 0.9044715447154471,
+        "ci95": [
+          0.8752756665076679,
+          0.9274000266975814
+        ]
+      },
+      "err640_median": 13.773035920881615,
+      "err640_p90": 43.64059668693057,
+      "sigma640_equiv": 11.697739663754728,
+      "conf_on_gt_invisible": 25
+    },
+    "kontrol (holdout)": {
+      "n_gt_visible": 350,
+      "recall@0.5": {
+        "k": 315,
+        "n": 350,
+        "rate": 0.9,
+        "ci95": [
+          0.864098201801162,
+          0.927216329898898
+        ]
+      },
+      "err640_median": 8.270920314443794,
+      "err640_p90": 20.546292093278204,
+      "sigma640_equiv": 7.024672931502152,
+      "conf_on_gt_invisible": 2
+    },
+    "aynı-maç referans": {
+      "n_gt_visible": 637,
+      "recall@0.5": {
+        "k": 560,
+        "n": 637,
+        "rate": 0.8791208791208791,
+        "ci95": [
+          0.8515065841767722,
+          0.9021898050713664
+        ]
+      },
+      "err640_median": 4.522031533971434,
+      "err640_p90": 11.754647472832053,
+      "sigma640_equiv": 3.840659963391811,
+      "conf_on_gt_invisible": 10
+    }
+  }
+}

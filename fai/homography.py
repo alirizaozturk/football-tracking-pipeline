@@ -186,6 +186,81 @@ def line_evidence(mask: np.ndarray, tol: int, H_pitch2img: np.ndarray, samples: 
     return s, margin
 
 
+def _line_binary(frame: np.ndarray, check: LineCheck) -> np.ndarray:
+    """Genişletilmemiş top-hat çizgi maskesi (0/255)."""
+    w = frame.shape[1]
+    L = cv2.extractChannel(cv2.cvtColor(frame, cv2.COLOR_BGR2LAB), 0)
+    k = max(3, int(round(w / check.kernel_div)) | 1)
+    th = cv2.morphologyEx(L, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return cv2.threshold(th, math.ceil(check.tophat_thr) - 1, 255, cv2.THRESH_BINARY)[1]
+
+
+def _render_lines(H_p2i: np.ndarray, polylines, w: int, h: int, step_m: float = 0.5) -> np.ndarray:
+    img = np.zeros((h, w), np.float32)
+    for pl in polylines:
+        dense = []
+        for a, b in zip(pl[:-1], pl[1:]):
+            k = max(2, int(np.hypot(*(b - a)) / step_m))
+            dense.append(np.linspace(a, b, k, endpoint=False))
+        dense.append(pl[-1:])
+        pts = cv2.perspectiveTransform(np.concatenate(dense).reshape(-1, 1, 2), H_p2i)
+        if not np.isfinite(pts).all():
+            continue
+        cv2.polylines(img, [np.clip(np.round(pts), -10000, 10000).astype(np.int32)], False, 1.0, 2, cv2.LINE_AA)
+    return img
+
+
+def refine_homography(frame: np.ndarray, res: HomographyResult, polylines, check: LineCheck = LineCheck(),
+                      search_m: float = 6.0, search_step_m: float = 0.5, ecc: bool = True,
+                      ecc_width: int = 960, min_samples: int = 30) -> Tuple[HomographyResult, Dict]:
+    """DENEYSEL (Faz 1a yapısal seçenek; pipeline'a bağlı değil). H'yi görüntüdeki çizgilere göre iyileştirir:
+      1) öteleme araması: saha düzleminde ±search_m (adım search_step_m) kaydırmalar arasından, projekte çizgi
+         örneklerinin çizgi maskesinin distance transform'una göre yumuşak skoru (exp(-d²/2σ²)) en yüksek olan;
+      2) ecc=True ise ECC (MOTION_HOMOGRAPHY): çizilen saha çizgisi şablonu ile görüntünün top-hat maskesi
+         arasında, ecc_width genişliğe küçültülmüş, Gauss bulanıklaştırılmış görüntülerde.
+    -> (iyileştirilmiş H, bilgi). ECC yakınsamazsa öteleme sonucu döner."""
+    h, w = frame.shape[:2]
+    binm = _line_binary(frame, check)
+    dt = cv2.distanceTransform(255 - binm, cv2.DIST_L2, 3)
+    sig = max(1.0, w / 480.0)                                  # 1920 px'te 4 px
+    samples = pitch_line_samples(polylines, check.step_m)
+    r = np.arange(-search_m, search_m + 1e-9, search_step_m)
+    offs = np.array([(dx, dy) for dx in r for dy in r])
+    P, N = len(offs), len(samples)
+    uv = cv2.perspectiveTransform((samples[None] - offs[:, None]).reshape(-1, 1, 2), res.H_pitch2img).reshape(P, N, 2)
+    ok = np.isfinite(uv).all(-1) & (uv[..., 0] >= 0) & (uv[..., 0] < w) & (uv[..., 1] >= 0) & (uv[..., 1] < h)
+    soft = np.full(P, -np.inf)
+    for i in range(P):
+        if ok[i].sum() >= min_samples:
+            q = uv[i][ok[i]].astype(int)
+            soft[i] = float(np.exp(-0.5 * (dt[q[:, 1], q[:, 0]] / sig) ** 2).mean())
+    best = int(np.argmax(soft))
+    d = offs[best]
+    T = np.array([[1, 0, -d[0]], [0, 1, -d[1]], [0, 0, 1.0]])
+    H1 = res.H_pitch2img @ T
+    H1i = np.linalg.inv(H1)
+    info = {"shift_m": (float(d[0]), float(d[1])), "soft0": float(soft[np.argmin(np.hypot(*offs.T))]),
+            "soft1": float(soft[best]), "ecc": None,
+            "H_shift": HomographyResult(H1i / H1i[2, 2], H1 / H1[2, 2], res.n_points, res.n_inliers, res.reproj_rmse_px)}
+    H2 = H1
+    if ecc:
+        s = ecc_width / w
+        S = np.diag([s, s, 1.0])
+        ws, hs = int(round(w * s)), int(round(h * s))
+        inp = cv2.GaussianBlur(cv2.resize(binm, (ws, hs), interpolation=cv2.INTER_AREA).astype(np.float32) / 255, (0, 0), 2)
+        tmpl = cv2.GaussianBlur(_render_lines(S @ H1, polylines, ws, hs), (0, 0), 2)
+        warp = np.eye(3, dtype=np.float32)
+        try:
+            cc, warp = cv2.findTransformECC(tmpl, inp, warp, cv2.MOTION_HOMOGRAPHY,
+                                            (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 100, 1e-6), None, 5)
+            H2 = np.linalg.inv(S) @ warp.astype(np.float64) @ S @ H1     # şablon -> görüntü
+            info["ecc"] = float(cc)
+        except cv2.error:
+            info["ecc"] = "yakınsamadı"
+    Hi = np.linalg.inv(H2)
+    return HomographyResult(Hi / Hi[2, 2], H2 / H2[2, 2], res.n_points, res.n_inliers, res.reproj_rmse_px), info
+
+
 def judge_lines(score: float, margin: float, check: LineCheck) -> str:
     """'' = kabul; aksi halde red sebebi: 'score' (NaN dahil: doğrulanacak çizgi yok) ya da 'margin'."""
     if not np.isfinite(score) or (check.min_score is not None and score < check.min_score):

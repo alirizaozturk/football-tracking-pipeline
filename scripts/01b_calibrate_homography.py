@@ -796,6 +796,120 @@ def kp_report(res: dict, weights, out: Path) -> None:
     (out / "kp_model.md").write_text("\n".join(L) + "\n", encoding="utf-8")
 
 
+# ------------------------------------- Faz 1a yapısal seçenek: marj testinden önce H'yi çizgilere göre iyileştir
+REFINE_VARIANTS = ("model H (iyileştirmesiz)", "öteleme (DT)", "öteleme + ECC")
+
+
+def kp_refine_study(weights, root: Path, out: Path, log, predictor=None,
+                    splits=("calib", "holdout", "valid", "test_same")) -> dict:
+    """Ön-kayıtlı kalibrasyonla aynı tanımlar (doğru < 0.5 m, yanlış > 2 m; mu* = calib doğru-H marjlarının %5
+    quantile'ı), ama marj (ve geometri) İYİLEŞTİRİLMİŞ H üzerinde. Kaydırılmış model H'leri de aynı şekilde
+    iyileştirilir: iyileştirme yanlış H'yi doğruya çekerse (kurtarma) yanlış kabul sayılmaz; yanlış kalıp kabul
+    edilirse yanlış kabul sayılır."""
+    from fai.homography import grid_error_m, line_evidence, line_mask, probe_offsets, pitch_line_samples, refine_homography
+    from fai.pipeline import PipelineConfig, build_htracker
+    if predictor is None:
+        from fai.models import YoloKeypoints
+        yk = YoloKeypoints(str(weights))
+
+        def predictor(frame, item):
+            return yk(frame)
+    cfg = PipelineConfig()
+    chk = cfg.line_check()
+    samples, offsets = pitch_line_samples(P.polylines(), chk.step_m), probe_offsets(chk.probes_m)
+    items = load_items(root, [s for s in splits if (root / s / "images").exists()])
+    rows = []
+    for n_img, (split, ip, k) in enumerate(items):
+        frame = cv2.imread(str(ip))
+        h, w = frame.shape[:2]
+        vis = k[:, 2] > 0
+        gt = fit_homography(k[vis, :2] * [w, h], P.vertices[vis], 8.0)
+        if gt is None or not is_plausible(gt, w, h, P.length, P.width):
+            continue
+        xy, conf = predictor(frame, (split, ip, k))
+        if xy is None:
+            continue
+        ht = build_htracker(P, cfg)
+        ht.update(np.asarray(xy, float), np.asarray(conf, float), frame)
+        cand, reason0 = ht.last_candidate, ht.diag["reject_reason"]
+        if cand is None:
+            continue
+        hard = reason0 in ("few_kp", "fit", "rmse")
+        mask, tol = line_mask(frame, chk)
+        for d in [(0.0, 0.0)] + GRID:
+            H0 = cand if d == (0.0, 0.0) else shifted(cand, d)
+            e0, _ = grid_error_m(H0.H_img2pitch, gt.H_pitch2img, w, h, P.length, P.width, KP_GRID_M)
+            Hr, info = refine_homography(frame, H0, P.polylines(), chk, ecc=True)
+            for var, Hv in zip(REFINE_VARIANTS, (H0, info["H_shift"], Hr)):
+                s, m = line_evidence(mask, tol, Hv.H_pitch2img, samples, offsets, chk.min_samples)
+                e, _ = grid_error_m(Hv.H_img2pitch, gt.H_pitch2img, w, h, P.length, P.width, KP_GRID_M)
+                rows.append(dict(split=split, image=ip.name, kind="natural" if d == (0.0, 0.0) else "shift",
+                                 d=max(abs(d[0]), abs(d[1])), variant=var, hard=hard,
+                                 geo=is_plausible(Hv, w, h, P.length, P.width), score=s, margin=m,
+                                 err0=e0, err=e, cls0=kp_class(e0), cls=kp_class(e),
+                                 ecc=str(info["ecc"]) if var == REFINE_VARIANTS[2] else ""))
+        if (n_img + 1) % 10 == 0:
+            log(f"  iyileştirme: {n_img + 1}/{len(items)} görüntü")
+    df = pd.DataFrame(rows)
+    df.to_csv(out / "kp_refine_rows.csv", index=False)
+
+    def acc(g, mu):
+        return (~g.hard.astype(bool)) & g.geo.astype(bool) & np.isfinite(g.score) & np.isfinite(g.margin) & (g.margin >= mu)
+
+    res = {}
+    for var in REFINE_VARIANTS:
+        dv = df[df.variant == var]
+        sel = dv[(dv.kind == "natural") & dv.split.isin(KP_SELECT) & (dv.cls == "correct") & ~dv.hard.astype(bool) & dv.geo.astype(bool)]
+        m = sel.margin[np.isfinite(sel.margin)]
+        mu_star = floor2(float(np.quantile(m, KP_MU_Q))) if len(m) else float("nan")
+        r = {"mu_star": mu_star, "n_select_correct": int(len(m)), "groups": {}}
+        for gname, sp in (("seçim (calib)", KP_SELECT), ("kontrol (holdout)", KP_CONFIRM), ("aynı-maç referans", KP_REFERENCE)):
+            g = dv[dv.split.isin(sp)]
+            nat, sh = g[g.kind == "natural"], g[g.kind == "shift"]
+            e = nat.err.dropna()
+            entry = {"n": int(len(nat)), "err_median": float(e.median()) if len(e) else float("nan"),
+                     "err_p10": float(e.quantile(.1)) if len(e) else float("nan"),
+                     "err_p90": float(e.quantile(.9)) if len(e) else float("nan"),
+                     "correct": rate((nat.cls == "correct").to_numpy()), "ambiguous": rate((nat.cls == "ambiguous").to_numpy()),
+                     "wrong": rate((nat.cls == "wrong").to_numpy()),
+                     "shift_rescued": rate((sh.cls == "correct").to_numpy())}
+            for mu_name, mu in (("0.12", 0.12), ("mu*", mu_star)):
+                if not np.isfinite(mu):
+                    entry[mu_name] = None
+                    continue
+                a_n, a_s = acc(nat, mu), acc(sh, mu)
+                corr = nat[nat.cls == "correct"]
+                rej = corr[~acc(corr, mu)]
+                entry[mu_name] = {
+                    "FRR": rate(~acc(corr, mu).to_numpy()),
+                    "FRR_by_reason": {"rmse": int(rej.hard.sum()), "geometry": int((~rej.hard & ~rej.geo.astype(bool)).sum()),
+                                      "score/margin": int((~rej.hard & rej.geo.astype(bool)).sum())},
+                    "FAR_natural": rate(a_n[nat.cls == "wrong"].to_numpy()),
+                    "FAR_shift": rate(a_s[sh.cls == "wrong"].to_numpy()),
+                    "FAR": rate(np.r_[a_n[nat.cls == "wrong"].to_numpy(), a_s[sh.cls == "wrong"].to_numpy()]),
+                    "accepted_natural": int(a_n.sum()), "accepted_ambiguous": int((a_n & (nat.cls == "ambiguous")).sum()),
+                }
+            r["groups"][gname] = entry
+        res[var] = r
+    (out / "kp_refine.json").write_text(json.dumps(res, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    L = ["# Faz 1a — yapısal seçenek: marj testinden önce H'yi çizgilere göre iyileştirme\n",
+         "Aynı model, aynı keypoint'ler, aynı ön-kayıtlı tanımlar (doğru < 0.5 m, yanlış > 2 m, mu* = calib doğru-H marjlarının "
+         "%5 quantile'ı). Marj ve geometri iyileştirilmiş H'de hesaplanır. Kaydırılmış model H'leri (±3/5/10 m) de iyileştirilir; "
+         "doğruya çekilenler 'kurtarıldı', yanlış kalıp kabul edilenler yanlış kabul.\n",
+         "| yöntem | set | H hatası medyan (p10–p90) m | doğru / belirsiz / yanlış | mu* | FRR @mu* | FAR @mu* (doğal / kaydırılmış) | FRR @0.12 | FAR @0.12 | kaydırılmış → doğru |",
+         "|---|---|---|---|---|---|---|---|---|---|"]
+    pc = lambda x: f"%{100 * x['rate']:.1f} ({x['k']}/{x['n']})"  # noqa: E731
+    for var, r in res.items():
+        for gname, e in r["groups"].items():
+            ms, m12 = e["mu*"], e["0.12"]
+            L.append(f"| {var} | {gname} | {e['err_median']:.2f} ({e['err_p10']:.2f}–{e['err_p90']:.2f}) | "
+                     f"{e['correct']['k']} / {e['ambiguous']['k']} / {e['wrong']['k']} | {r['mu_star']} | "
+                     f"{pc(ms['FRR']) if ms else '—'} | {(pc(ms['FAR_natural']) + ' / ' + pc(ms['FAR_shift'])) if ms else '—'} | "
+                     f"{pc(m12['FRR'])} | {pc(m12['FAR'])} | {pc(e['shift_rescued'])} |")
+    (out / "kp_refine.md").write_text("\n".join(L) + "\n", encoding="utf-8")
+    return res
+
+
 # ---------------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -807,6 +921,7 @@ def main():
     ap.add_argument("--noise-only", action="store_true", help="sadece gürültü çalışması")
     ap.add_argument("--kp-model", default=None, help="Faz 1a: pose ağırlığı; model keypoint'leriyle kalibrasyon (sadece bu aşama)")
     ap.add_argument("--kp-data", default="data/derived/field-v12-1a", help="01c'nin türettiği dataset (calib/holdout/valid/test_same)")
+    ap.add_argument("--kp-refine", action="store_true", help="Faz 1a yapısal seçenek: H iyileştirme (öteleme + ECC) ölçümü")
     a = ap.parse_args()
     root = Path(a.data)
     out = Path(a.out or f"outputs/calibration/{root.name}")
@@ -815,6 +930,10 @@ def main():
     log = lambda m: print(m, flush=True)  # noqa: E731
 
     if a.kp_model:
+        if a.kp_refine:
+            kp_refine_study(a.kp_model, Path(a.kp_data), out, log)
+            log(f"[kp-refine] -> {out / 'kp_refine.md'} ({time.time() - t0:.0f} s)")
+            return
         res = kp_model_study(a.kp_model, Path(a.kp_data), out, log)
         kp_report(res, a.kp_model, out)
         log(f"[kp-model] mu*={res['mu_star']} bitti={res['done']} -> {out / 'kp_model.md'} ({time.time() - t0:.0f} s)")

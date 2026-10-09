@@ -103,10 +103,29 @@ python scripts/03_check_keypoints.py --kp runs/pose/weights/best.pt --source kli
 - Varsayılanlar: det `yolo11m` @1280, pose `yolo11m-pose` @640 (mosaic ve yatay flip kapalı — flip sol/sağ keypoint'leri takas eder). `batch=-1` → AutoBatch VRAM'e göre seçer. 4060'ta OOM olursa `--model yolo11s.pt`.
 - Test klibi için: videodaki klipler Kaggle'daki **DFL – Bundesliga Data Shootout** yarışmasından.
 
-**Faz 1 planı (henüz uygulanmadı):**
-1. Pose eğitiminden önce field train split'inden ~50 görüntü "calib" split'i olarak ayrılır ve eğitime girmez. Çizgi kontrolünün nihai kalibrasyonu (`01b`) modelin kendi keypoint'leriyle sadece valid + test + calib üzerinde yapılır; model, eğitildiği görüntülerde değerlendirilmez.
-2. Aynalanmış etiketli görüntü dataseti değiştirmeden bir exclude listesiyle eğitimden çıkarılır.
-3. `fliplr` açılmadan önce `data.yaml`'daki `flip_idx` `pitch.py` ile programatik doğrulanır: her i için `vertex[flip_idx[i]] == (L − x_i, y_i)`. Beklenen: `[24, 25, 26, 27, 28, 29, 22, 23, 21, 17, 18, 19, 20, 13, 14, 15, 16, 9, 10, 11, 12, 8, 6, 7, 0, 1, 2, 3, 4, 5, 31, 30]`.
+#### Faz 1a — pose modeli + model keypoint'leriyle kalibrasyon
+```bash
+python scripts/01c_prepare_pose_data.py --data data/roboflow/field-v12          # split + flip_idx doğrulaması
+python scripts/02_train.py pose --data data/derived/field-v12-1a/data.yaml --name pose-1a --device 0 > runs/pose-1a/train.log 2>&1 &
+python scripts/gpu_watchdog.py --pid-file runs/pose-1a/train.pid --log runs/pose-1a/gpu.csv   # ayrı terminalde
+python scripts/02_train.py pose --data data/derived/field-v12-1a/data.yaml --name pose-1a --resume   # yarıda kaldıysa
+python scripts/01b_calibrate_homography.py --kp-model runs/pose-1a/weights/best.pt --kp-data data/derived/field-v12-1a
+```
+- **Maç bazında split** (`splits/field-v12/`, commit'li): Roboflow'un field v12 split'leri kare bazında; 18 maçın hepsi train'de ve valid/test karelerinin %75–90'ı train'deki kliplerin komşu kareleri. Bu yüzden ≤20 kareli maçlardan sabit seed'le **calib** (7 maç / 36 kare; çizgi kontrolü eşikleri burada seçilir) ve **holdout** (2 maç / 21 kare; son kontrol) ayrılır. Bu maçların bütün kareleri eğitimden çıkar. Eğitim 9 maç / 176 kare. Eğitim maçlarının valid'i (23) early stopping için kalır, aynı-maç referans olarak raporlanır. `exclude.txt`: aynalanmış etiketli görüntü. Orijinal dataset dosyalarına dokunulmaz (türetilmiş dataset hardlink).
+- **flip_idx**: `pitch.py`'nin ayna eşlemesiyle (her i için `vertex[flip_idx[i]] == (L − x_i, y_i)`) birebir aynı → pose eğitimi `fliplr=0.5`. `02_train` bu kararı her pose eğitiminde programatik verir.
+- **Sıcaklık bekçisi** (`gpu_watchdog.py`): 60 s'de bir sıcaklık / SM clock / thermal slowdown / güç CSV'ye yazılır. Thermal slowdown aktifse ya da sıcaklık art arda 3 örnek (~3 dk) > 85 °C ise eğitim süreç ağacı durdurulur; `--resume` ile son epoch'tan devam edilir.
+- **Kalibrasyon ön-kaydı** (`01b --kp-model`, sonuçlardan önce commit'lendi): doğru H = model H'si ile GT H'si arasındaki ortalama mesafe < 0.5 m (görüntüde görünen saha üzerinde 1 m ızgara), yanlış H > 2 m, arası belirsiz. Marj eşiği calib'deki doğru-H marjlarının %5 quantile'ı; holdout son kontrol. Yanlış H kabulü: doğal yanlış H'ler + model H'sinin ±3/5/10 m kaydırılmış halleri.
+- **Sonuç** (`pose-1a`: yolo11m-pose @640, 300 epoch, fliplr 0.5; [docs/faz1a](docs/faz1a)) — **Bitti kriteri tutmadı**:
+  - pose mAP50-95: aynı-maç valid 0.807 / test_same 0.847, görülmemiş maçlar calib **0.238** / holdout **0.517**.
+  - Keypoint hatası (640 ölçeğinde, medyan / p90; conf ≥ 0.5): aynı-maç 4.5 / 11.8 px, calib 13.8 / 43.6 px, holdout 8.3 / 20.6 px. σ eşdeğeri 3.8 / 11.7 / 7.0 px, Faz A gürültü tablosunun üst sınırının (σ = 2) çok üstünde. En kötü noktalar orta çizgi / orta yuvarlak (14–17, 31, 32) ve yakın taç çizgisi (21, 29).
+  - Model H hatası medyan: calib 3.96 m, holdout 2.82 m, aynı-maç 1.56 m. Hiçbir sette < 0.5 m "doğru H" yok, bu yüzden marj eşiği seçilemedi (FRR tanımsız). Kabul zinciri bütün yanlış H'leri ve kaydırılmış H'leri reddediyor (yanlış kabul %0); yani görülmemiş maçlarda bu modelle homography kapsaması ~0 olur.
+  - Yapısal seçenek (marjdan önce H'yi çizgilere göre iyileştirme: distance transform üzerinde öteleme araması, + ECC; `01b --kp-refine`, `fai.homography.refine_homography`, deneysel): doğru H üretmedi, kaydırılmış H'leri doğruya çekmedi, aynı-maç sette yanlış kabulü %0'dan %6–8'e çıkardı. Pipeline'a bağlanmadı.
+  - Eğitim 40 dk; GPU en fazla 69 °C, thermal slowdown yok, bekçi durdurma yapmadı.
+  - Açık karar: pose doğruluğu artırılmadan (ör. pose @1280, daha büyük model, daha çok maç / Faz 2 datası) kalibrasyon tekrarlanamaz.
+
+#### Faz 1b — det + ball + klip kontrolü (plan, henüz başlanmadı)
+- det (players v10) ve ball (v2) eğitimi; sınıf bazında val metrikleri Roboflow sports notebook'larındaki değerlerle karşılaştırılır.
+- 2–3 DFL klibinde `03_check_keypoints` (Kaggle **DFL – Bundesliga Data Shootout**, `clips/` klasörü). Field v12'de olmayan bir maçtan en az bir klip gerekli: field v12'nin 18 maçı `08fd33, 0a2d9b, 0bfacc, 121364, 2e57b9, 42ba34, 4b770a, 538438, 54745b, 55c9d1, 744b27, 798b45, a9f16c, c01561, cd987c, d82e7a, e624c9, ec783a`. Öneri: `573e61_0.mp4` (roboflow-sports örnek klibi, field v12'de yok) + bu listede olmayan bir klip daha + aynı-maç referansı olarak `2e57b9_0.mp4` (videodaki klip; eğitim maçı).
 
 **Bitti:**
 - det: player / goalkeeper / referee'de val mAP50 yüksek; ball belirgin düşük çıkar — küçük obje, beklenen durum (ayrı ball modeli bu yüzden var).
@@ -135,6 +154,8 @@ python scripts/06_build_tracking_dataset.py --video mac.mp4 \
     --start-s 0 --duration-s 120
 ```
 Önce kısa bir aralıkla dene (`--duration-s`). Bütün eşikler parametre (`--help`): çizgi kontrolü `--min-line-margin`, `--line-tol-div`, `--line-tophat-thr`, `--min-line-score`; sahne kesmesi `--cut-threshold`; tracker `--track-*`; top `--max-ball-speed*`, `--ball-max-gap-s`. Kullanılan değerler `meta.json` → `pipeline_config` / `post_config`'e yazılır. Ayar yaparken `frames.parquet`'e bak: `reject_reason` hangi kriterin reddettiğini, `line_score` / `line_margin` reddedilenler dahil dağılımı, `cut_dist` kesme eşiğinin nereye konacağını gösterir. Takım sınıflandırıcı maçın kendi oyuncu kırpıntılarıyla fit edilir ve `team_classifier.pkl` olarak saklanır.
+
+**Faz 3 notu (plan):** #9 düzeltmesinde `track_high_conf` = detector conf olduğu için ByteTrack'in düşük güvenli ikinci eşleştirme aşaması hiç çalışmıyor. Gerçek klipte değerlendirilecek: detector conf'u düşür (ör. `--det-conf 0.1`), `--track-high-conf` ~0.3–0.4'te tut, eşleşmeyen düşük güvenli tespitleri datasetten at; etkisi ID kopması sayısıyla birlikte raporlanacak.
 
 **Bitti:** `meta.json`'da `homography_coverage` (sadece doğrulanmış fresh H) yüksek (replay/yakın çekim oranına bağlı), `homography_rejected` sayıları düşük, `scene_cuts` videodaki kesme sayısıyla uyumlu, `render_radar.mp4`'te radar noktaları oyuncularla eşzamanlı hareket ediyor, iki takım renkleri tutarlı.
 
@@ -205,6 +226,7 @@ Entegrasyon: `02_train` (det + pose), `03_check_keypoints`, `04_extract_frames`,
 ## Klasör yapısı
 ```
 fai/            pitch, homography, models, teams, pipeline, postprocess, build, render, analysis, viz, dataio, cli
-scripts/        01_download → 01b_calibrate_homography → 02_train → 03_check_keypoints → 04_extract → 05_autolabel → 06_build → 07_render → 08_analyze
-tests/          test_synthetic.py (modelsiz uçtan uca), test_negative.py (bulgu + kontrol testleri), test_faz_a.py, make_synth_yolo.py
+scripts/        01_download → 01b_calibrate_homography → 01c_prepare_pose_data → 02_train (+ gpu_watchdog) → 03_check_keypoints → 04_extract → 05_autolabel → 06_build → 07_render → 08_analyze
+splits/         commit'li split listeleri (field-v12: calib, holdout, exclude)
+tests/          test_synthetic.py (modelsiz uçtan uca), test_negative.py (bulgu + kontrol testleri), test_faz_a.py, test_faz_1a.py, make_synth_yolo.py
 ```

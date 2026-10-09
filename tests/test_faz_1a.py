@@ -53,6 +53,24 @@ def test_grid_error_m_kimlik_ve_oteleme():
         assert abs(e - np.hypot(*d)) < 1e-6, (d, e)
 
 
+@pytest.mark.parametrize("T", [np.array([[1, 0, -1.5], [0, 1, 0.8], [0, 0, 1.0]]),
+                               np.array([[np.cos(0.0175), -np.sin(0.0175), -1.0], [np.sin(0.0175), np.cos(0.0175), 0.5], [0, 0, 1.0]]),
+                               np.array([[1, 0, -5.0], [0, 1, 0], [0, 0, 1.0]])],
+                         ids=["oteleme_1.5m", "oteleme_1derece", "oteleme_5m"])
+def test_refine_homography_bozulmus_h_yi_duzeltir(T):
+    """Deneysel H iyileştirme (öteleme araması + ECC): temiz sentetik karede bozulmuş H'yi < 0.2 m'ye çekmeli."""
+    from tests.test_negative import H, W, camera, lines_frame
+    from fai.homography import refine_homography
+    Hp = camera(50.0)
+    H0p = Hp @ T
+    Hi = np.linalg.inv(H0p)
+    H0 = HomographyResult(Hi / Hi[2, 2], H0p / H0p[2, 2], 10, 10, 1.0)
+    assert grid_error_m(H0.H_img2pitch, Hp, W, H)[0] > 1.0
+    Hr, info = refine_homography(lines_frame(Hp), H0, P.polylines())
+    e, _ = grid_error_m(Hr.H_img2pitch, Hp, W, H)
+    assert e < 0.2, (e, info["ecc"])
+
+
 def test_kp_model_kalibrasyon_yolu_smoke():
     from tests.test_negative import H, W, camera, keypoints, lines_frame
     import shutil

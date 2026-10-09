@@ -1,0 +1,44 @@
+{
+  "source": "C:\\projects\\football-ai\\data\\roboflow\\field-v12",
+  "lists": {
+    "calib": "C:\\projects\\football-ai\\splits\\field-v12\\calib.txt",
+    "holdout": "C:\\projects\\football-ai\\splits\\field-v12\\holdout.txt"
+  },
+  "exclude": [
+    "42ba34_9_2_png.rf.9bf0f5d5ef6202770e2ed8e9016b2c8f.jpg"
+  ],
+  "n": {
+    "train": 176,
+    "valid": 23,
+    "test_same": 19,
+    "calib": 36,
+    "holdout": 21
+  },
+  "train_matches": [
+    "08fd33",
+    "0bfacc",
+    "121364",
+    "2e57b9",
+    "42ba34",
+    "744b27",
+    "a9f16c",
+    "c01561",
+    "e624c9"
+  ],
+  "calib_matches": [
+    "0a2d9b",
+    "4b770a",
+    "538438",
+    "54745b",
+    "55c9d1",
+    "798b45",
+    "ec783a"
+  ],
+  "holdout_matches": [
+    "cd987c",
+    "d82e7a"
+  ],
+  "flip_idx_ok": true,
+  "flip_idx_mismatch": [],
+  "seed": 0
+}

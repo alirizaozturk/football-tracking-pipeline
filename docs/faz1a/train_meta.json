@@ -1,0 +1,18 @@
+{
+  "sessions": [
+    {
+      "start": "2026-10-09 18:33:05",
+      "resume": false,
+      "end": "2026-10-09 19:13:01",
+      "seconds": 2406.7
+    }
+  ],
+  "fliplr": {
+    "value": 0.5,
+    "reason": "flip_idx pitch.py aynasıyla aynı"
+  },
+  "task": "pose",
+  "data": "C:\\projects\\football-ai\\data\\derived\\field-v12-1a\\data.yaml",
+  "model": "yolo11m-pose.pt",
+  "best": "C:\\projects\\football-ai\\runs\\pose-1a\\weights\\best.pt"
+}
