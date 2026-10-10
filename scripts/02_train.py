@@ -58,6 +58,9 @@ def main():
     ap.add_argument("--name", default=None)
     ap.add_argument("--project", default="runs")
     ap.add_argument("--resume", action="store_true", help="<project>/<name>/weights/last.pt'den devam et")
+    ap.add_argument("--workers", type=int, default=None,
+                    help="dataloader worker sayısı (varsayılan: ultralytics 8). 16 GB RAM'de det/ball @1280 için 4 "
+                         "(8 + valid'in 16 worker'ı sistem belleğini tüketebiliyor). Resume'da da değiştirilebilir.")
     a = ap.parse_args()
 
     model_name, imgsz, epochs, extra = DEFAULTS[a.task]
@@ -71,6 +74,7 @@ def main():
     meta_p = run_dir / "train_meta.json"
     meta = json.loads(meta_p.read_text(encoding="utf-8")) if meta_p.exists() else {"sessions": []}
     t0 = time.time()
+    wk = {} if a.workers is None else {"workers": a.workers}
 
     from ultralytics import YOLO
     last = run_dir / "weights" / "last.pt"
@@ -79,7 +83,7 @@ def main():
         meta["sessions"].append({"start": time.strftime("%Y-%m-%d %H:%M:%S"), "resume": True})
         meta_p.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
         model = YOLO(str(last))
-        model.train(resume=True)
+        model.train(resume=True, **wk)
     else:
         data = a.data[0]
         if len(a.data) > 1:
@@ -96,7 +100,7 @@ def main():
         batch = int(a.batch) if a.batch >= 1 or a.batch == -1 else a.batch
         model.train(data=data, imgsz=a.imgsz or imgsz, epochs=a.epochs or epochs, batch=batch,
                     device=a.device, patience=a.patience, project=str(project), name=name,
-                    exist_ok=True, plots=True, **extra)
+                    exist_ok=True, plots=True, **wk, **extra)
     meta["sessions"][-1].update(end=time.strftime("%Y-%m-%d %H:%M:%S"), seconds=round(time.time() - t0, 1))
     meta["best"] = str(model.trainer.best)
     meta_p.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")

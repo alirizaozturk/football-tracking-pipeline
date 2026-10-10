@@ -125,7 +125,7 @@ python scripts/01b_calibrate_homography.py --kp-model runs/pose-1a/weights/best.
 
 #### Faz 1b — det + ball + klip kontrolü (plan, henüz başlanmadı)
 - det (players v10) ve ball (v2) eğitimi; sınıf bazında val metrikleri Roboflow sports notebook'larındaki değerlerle karşılaştırılır.
-- 2–3 DFL klibinde `03_check_keypoints` (Kaggle **DFL – Bundesliga Data Shootout**, `clips/` klasörü). Field v12'de olmayan bir maçtan en az bir klip gerekli: field v12'nin 18 maçı `08fd33, 0a2d9b, 0bfacc, 121364, 2e57b9, 42ba34, 4b770a, 538438, 54745b, 55c9d1, 744b27, 798b45, a9f16c, c01561, cd987c, d82e7a, e624c9, ec783a`. Öneri: `573e61_0.mp4` (roboflow-sports örnek klibi, field v12'de yok) + bu listede olmayan bir klip daha + aynı-maç referansı olarak `2e57b9_0.mp4` (videodaki klip; eğitim maçı).
+- 2–3 DFL klibinde `03_check_keypoints` (Kaggle **DFL – Bundesliga Data Shootout**, `clips/` klasörü). Field v12'de olmayan bir maçtan en az bir klip gerekli: field v12'nin 18 maçı `08fd33, 0a2d9b, 0bfacc, 121364, 2e57b9, 42ba34, 4b770a, 538438, 54745b, 55c9d1, 744b27, 798b45, a9f16c, c01561, cd987c, d82e7a, e624c9, ec783a`. Dikkat: players v10 ve ball v2 iki maç daha içeriyor (`40cd38`, `573e61`); yani `573e61_0.mp4` pose için görülmemiş ama det / ball için eğitim maçı. Det ve pose'u birlikte görülmemiş bir maçta denemek için yukarıdaki 18 maç + `40cd38`, `573e61` dışında bir klip gerekli. Öneri: bu 20 maç dışında 1–2 klip + `573e61_0.mp4` (pose için görülmemiş) + aynı-maç referansı olarak `2e57b9_0.mp4` (videodaki klip).
 
 **Bitti:**
 - det: player / goalkeeper / referee'de val mAP50 yüksek; ball belirgin düşük çıkar — küçük obje, beklenen durum (ayrı ball modeli bu yüzden var).
